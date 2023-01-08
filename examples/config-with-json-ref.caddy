@@ -1,0 +1,3 @@
+recursor {
+    external-json examples/config.json
+}

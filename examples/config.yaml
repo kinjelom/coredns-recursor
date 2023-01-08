@@ -1,0 +1,31 @@
+verbose: 0
+zone: example.svc
+resolvers:
+  resolver_primary:
+    urls:
+      - udp://10.0.0.1:53
+      - udp://10.0.0.2:53
+    timeout_ms: 10
+  resolver_secondary:
+    urls:
+      - udp://10.0.0.3:53
+aliases:
+  alias1:
+    ips:
+      - 10.1.1.1
+      - 10.1.1.2
+    hosts:
+      - www.example.org
+      - www.example.com
+    ttl: 5
+    resolver_name: resolver_primary
+  alias2:
+    ips:
+      - 10.1.1.1
+      - 10.1.1.2
+  alias3:
+    hosts:
+      - www.example.org
+      - www.example.com
+    ttl: 15
+    resolver_name: resolver_secondary

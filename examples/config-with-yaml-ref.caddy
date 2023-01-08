@@ -1,0 +1,3 @@
+recursor {
+    external-yaml examples/config.yaml
+}

@@ -1,0 +1,7 @@
+# only add build artifacts concerning coredns - no editor related files
+.idea
+go.sum
+build/
+release/
+vendor/
+  

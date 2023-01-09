@@ -65,6 +65,7 @@ func createRecursor(cfg recursorCfg) (recursor, error) {
 		aliases:   map[string]aliasDef{},
 	}
 	r.resolvers[defaultResolverName] = resolverDef{
+		name:         defaultResolverName,
 		resolverRefs: []*net.Resolver{net.DefaultResolver},
 		urls:         []string{"://" + defaultResolverName},
 	}

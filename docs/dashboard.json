@@ -17,7 +17,7 @@
   "gnetId": 5926,
   "graphTooltip": 0,
   "id": 307,
-  "iteration": 1673081672652,
+  "iteration": 1673306588786,
   "links": [],
   "panels": [
     {
@@ -26,7 +26,7 @@
       "description": "",
       "fontSize": "100%",
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 6,
         "x": 0,
         "y": 0
@@ -39,8 +39,8 @@
       "scroll": true,
       "showHeader": true,
       "sort": {
-        "col": 0,
-        "desc": true
+        "col": 1,
+        "desc": false
       },
       "styles": [
         {
@@ -174,7 +174,7 @@
       ],
       "targets": [
         {
-          "expr": "coredns_recursor_resolvers_info{instance=\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\"}",
+          "expr": "sum(coredns_recursor_resolvers_info{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\"}) by (zone, resolver)",
           "format": "table",
           "instant": true,
           "intervalFactor": 1,
@@ -192,7 +192,7 @@
       "datasource": "prometheus",
       "fontSize": "100%",
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 7,
         "x": 6,
         "y": 0
@@ -204,7 +204,7 @@
       "scroll": true,
       "showHeader": true,
       "sort": {
-        "col": 2,
+        "col": 1,
         "desc": false
       },
       "styles": [
@@ -355,7 +355,7 @@
       ],
       "targets": [
         {
-          "expr": "coredns_recursor_aliases_info{instance=\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}",
+          "expr": "sum(coredns_recursor_aliases_info{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}) by (zone, resolver, alias, ttl)",
           "format": "table",
           "instant": true,
           "intervalFactor": 1,
@@ -373,7 +373,7 @@
       "datasource": "prometheus",
       "fontSize": "100%",
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 11,
         "x": 13,
         "y": 0
@@ -385,7 +385,7 @@
       "scroll": true,
       "showHeader": true,
       "sort": {
-        "col": 2,
+        "col": 1,
         "desc": false
       },
       "styles": [
@@ -552,7 +552,7 @@
       ],
       "targets": [
         {
-          "expr": "coredns_recursor_aliases_entries_info{instance=\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}",
+          "expr": "sum(coredns_recursor_aliases_entries_info{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}) by (zone, resolver, alias, type, entry)",
           "format": "table",
           "instant": true,
           "intervalFactor": 1,
@@ -578,10 +578,10 @@
       "fillGradient": 0,
       "grid": {},
       "gridPos": {
-        "h": 6,
+        "h": 7,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 5
       },
       "id": 1,
       "interval": "",
@@ -590,11 +590,13 @@
         "avg": false,
         "current": true,
         "hideEmpty": true,
-        "hideZero": true,
+        "hideZero": false,
         "max": true,
         "min": false,
         "rightSide": true,
         "show": true,
+        "sort": "current",
+        "sortDesc": true,
         "total": false,
         "values": true
       },
@@ -620,11 +622,11 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(coredns_recursor_query_served_count_total{instance=\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[5m])*5) by (zone, resolver, alias)",
+          "expr": "sum(rate(coredns_recursor_query_served_count_total{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[2m])*120) by (zone, resolver, alias)",
           "format": "time_series",
           "hide": false,
           "intervalFactor": 2,
-          "legendFormat": "{{resolver}} - {{alias}} {{zone}}",
+          "legendFormat": "{{alias}}.{{zone}}",
           "refId": "B",
           "step": 60
         }
@@ -633,7 +635,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Served Queries (per minute)",
+      "title": "Served Queries (/sec)",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -651,7 +653,7 @@
         {
           "decimals": null,
           "format": "short",
-          "logBase": 10,
+          "logBase": 1,
           "max": null,
           "min": "0",
           "show": true
@@ -682,10 +684,10 @@
       "fillGradient": 0,
       "grid": {},
       "gridPos": {
-        "h": 6,
+        "h": 7,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 5
       },
       "id": 10,
       "interval": "",
@@ -694,7 +696,7 @@
         "avg": false,
         "current": true,
         "hideEmpty": true,
-        "hideZero": true,
+        "hideZero": false,
         "max": true,
         "min": false,
         "rightSide": true,
@@ -724,11 +726,11 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(coredns_recursor_query_omitted_count_total{instance=\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[5m])*5) by (zone, resolver, alias, reason)",
+          "expr": "sum(rate(coredns_recursor_query_omitted_count_total{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[2m])*120) by (zone, resolver, alias, reason)",
           "format": "time_series",
           "hide": false,
           "intervalFactor": 2,
-          "legendFormat": "{{resolver}} - {{alias}} {{zone}} - {{reason}}",
+          "legendFormat": "{{alias}}.{{zone}} - {{reason}}",
           "refId": "B",
           "step": 60
         }
@@ -737,7 +739,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Omitted Queries (per minute)",
+      "title": "Omitted Queries (/sec)",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -755,7 +757,7 @@
         {
           "decimals": null,
           "format": "short",
-          "logBase": 10,
+          "logBase": 1,
           "max": null,
           "min": "0",
           "show": true
@@ -785,20 +787,24 @@
       "fillGradient": 0,
       "grid": {},
       "gridPos": {
-        "h": 7,
+        "h": 8,
         "w": 12,
         "x": 0,
         "y": 12
       },
       "id": 3,
+      "interval": "",
       "legend": {
         "alignAsTable": true,
         "avg": false,
         "current": true,
+        "hideEmpty": true,
         "max": false,
         "min": false,
-        "rightSide": true,
+        "rightSide": false,
         "show": true,
+        "sort": "current",
+        "sortDesc": true,
         "total": false,
         "values": true
       },
@@ -819,9 +825,9 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(coredns_recursor_resolve_count_total{instance=\"$instance\", result=\"success\", alias=~\"$alias\"}[5m])) by (zone, alias, resolver, host, result)",
+          "expr": "sum(rate(coredns_recursor_resolve_count_total{job=\"$job\", instance=~\"$instance\", result=\"success\", alias=~\"$alias\"}[2m])*120) by (zone, alias, resolver, host, result)",
           "intervalFactor": 2,
-          "legendFormat": "{{alias}}.{{zone}} / {{resolver}} / {{host}} / {{result}}",
+          "legendFormat": "{{alias}}.{{zone}} / {{host}} / {{result}}",
           "refId": "A",
           "step": 40
         }
@@ -830,10 +836,10 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Resolve Count",
+      "title": "Resolve Count (/sec)",
       "tooltip": {
         "shared": true,
-        "sort": 0,
+        "sort": 2,
         "value_type": "cumulative"
       },
       "type": "graph",
@@ -878,20 +884,23 @@
       "fillGradient": 0,
       "grid": {},
       "gridPos": {
-        "h": 7,
+        "h": 8,
         "w": 12,
         "x": 12,
         "y": 12
       },
       "id": 11,
+      "interval": "",
       "legend": {
         "alignAsTable": true,
         "avg": false,
         "current": true,
         "max": false,
         "min": false,
-        "rightSide": true,
+        "rightSide": false,
         "show": true,
+        "sort": "current",
+        "sortDesc": true,
         "total": false,
         "values": true
       },
@@ -912,9 +921,9 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(coredns_recursor_resolve_duration_ms{instance=\"$instance\", result=\"success\", alias=~\"$alias\"}[5m])) by (zone, alias, resolver, host, result)",
+          "expr": "avg(coredns_recursor_resolve_duration_ms{job=\"$job\", instance=~\"$instance\", result=\"success\", alias=~\"$alias\"}) by (zone, alias, resolver, host, result)",
           "intervalFactor": 2,
-          "legendFormat": "{{alias}}.{{zone}} / {{resolver}} / {{host}} / {{result}}",
+          "legendFormat": "{{alias}}.{{zone}} / {{host}} / {{result}}",
           "refId": "A",
           "step": 40
         }
@@ -926,7 +935,7 @@
       "title": "Resolve Duration",
       "tooltip": {
         "shared": true,
-        "sort": 0,
+        "sort": 2,
         "value_type": "cumulative"
       },
       "type": "graph",
@@ -972,19 +981,23 @@
       "grid": {},
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 24,
         "x": 0,
-        "y": 19
+        "y": 20
       },
-      "id": 12,
+      "id": 14,
       "legend": {
         "alignAsTable": true,
         "avg": false,
         "current": true,
+        "hideEmpty": true,
+        "hideZero": false,
         "max": false,
         "min": false,
         "rightSide": true,
         "show": true,
+        "sort": "current",
+        "sortDesc": true,
         "total": false,
         "values": true
       },
@@ -1005,9 +1018,9 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(coredns_recursor_resolve_count_total{instance=\"$instance\", result=\"success\", alias=~\"$alias\"}) by (zone, alias, resolver, host, result)",
+          "expr": "sum(rate(coredns_recursor_resolve_ip_count_total{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\", alias=~\"$alias\"}[2m])*120) by (zone, alias, ip)",
           "intervalFactor": 2,
-          "legendFormat": "{{alias}}.{{zone}} / {{resolver}} / {{host}} / {{result}}",
+          "legendFormat": "{{alias}}.{{zone}} / {{ip}}",
           "refId": "A",
           "step": 40
         }
@@ -1016,10 +1029,10 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Resolve Count Total",
+      "title": "IPs Count (/sec)",
       "tooltip": {
         "shared": true,
-        "sort": 0,
+        "sort": 2,
         "value_type": "cumulative"
       },
       "type": "graph",
@@ -1034,99 +1047,6 @@
         {
           "decimals": null,
           "format": "short",
-          "logBase": 10,
-          "max": null,
-          "min": null,
-          "show": true
-        },
-        {
-          "format": "short",
-          "logBase": 1,
-          "max": null,
-          "min": null,
-          "show": false
-        }
-      ],
-      "yaxis": {
-        "align": false,
-        "alignLevel": null
-      }
-    },
-    {
-      "aliasColors": {},
-      "bars": false,
-      "dashLength": 10,
-      "dashes": false,
-      "datasource": "prometheus",
-      "editable": true,
-      "error": false,
-      "fill": 1,
-      "fillGradient": 0,
-      "grid": {},
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 19
-      },
-      "id": 13,
-      "legend": {
-        "alignAsTable": true,
-        "avg": false,
-        "current": true,
-        "max": false,
-        "min": false,
-        "rightSide": true,
-        "show": true,
-        "total": false,
-        "values": true
-      },
-      "lines": true,
-      "linewidth": 2,
-      "links": [],
-      "nullPointMode": "connected",
-      "options": {
-        "dataLinks": []
-      },
-      "percentage": false,
-      "pointradius": 5,
-      "points": false,
-      "renderer": "flot",
-      "seriesOverrides": [],
-      "spaceLength": 10,
-      "stack": false,
-      "steppedLine": false,
-      "targets": [
-        {
-          "expr": "sum(coredns_recursor_resolve_duration_ms_total{instance=\"$instance\", result=\"success\", alias=~\"$alias\"}) by (zone, alias, resolver, host, result)",
-          "intervalFactor": 2,
-          "legendFormat": "{{alias}}.{{zone}} / {{resolver}} / {{host}} / {{result}}",
-          "refId": "A",
-          "step": 40
-        }
-      ],
-      "thresholds": [],
-      "timeFrom": null,
-      "timeRegions": [],
-      "timeShift": null,
-      "title": "Resolve Duration Total",
-      "tooltip": {
-        "shared": true,
-        "sort": 0,
-        "value_type": "cumulative"
-      },
-      "type": "graph",
-      "xaxis": {
-        "buckets": null,
-        "mode": "time",
-        "name": null,
-        "show": true,
-        "values": []
-      },
-      "yaxes": [
-        {
-          "decimals": null,
-          "format": "ms",
           "logBase": 10,
           "max": null,
           "min": null,
@@ -1148,29 +1068,26 @@
   ],
   "schemaVersion": 19,
   "style": "dark",
-  "tags": [
-    "dns",
-    "coredns"
-  ],
+  "tags": [],
   "templating": {
     "list": [
       {
         "allValue": ".*",
         "current": {
-          "text": "10.13.1.47",
-          "value": "10.13.1.47"
+          "text": "coredns-demo",
+          "value": "coredns-demo"
         },
         "datasource": "prometheus",
-        "definition": "label_values(coredns_recursor_build_info, instance)",
+        "definition": "label_values(coredns_build_info, job)",
         "hide": 0,
         "includeAll": false,
-        "label": "Instance IP",
+        "label": "Job",
         "multi": false,
-        "name": "instance_ip",
+        "name": "job",
         "options": [],
-        "query": "label_values(coredns_recursor_build_info, instance)",
+        "query": "label_values(coredns_build_info, job)",
         "refresh": 2,
-        "regex": "(.*):\\d+",
+        "regex": "",
         "skipUrlSync": false,
         "sort": 0,
         "tagValuesQuery": "",
@@ -1182,22 +1099,22 @@
       {
         "allValue": ".*",
         "current": {
-          "text": "10.13.1.47:9153",
-          "value": "10.13.1.47:9153"
+          "text": "All",
+          "value": "$__all"
         },
         "datasource": "prometheus",
-        "definition": "label_values(coredns_recursor_build_info{instance=~\"$instance_ip:.*\"}, instance)",
-        "hide": 2,
-        "includeAll": false,
+        "definition": "label_values(coredns_recursor_build_info{job=\"$job\"}, instance)",
+        "hide": 0,
+        "includeAll": true,
         "label": "Instance",
         "multi": false,
         "name": "instance",
         "options": [],
-        "query": "label_values(coredns_recursor_build_info{instance=~\"$instance_ip:.*\"}, instance)",
+        "query": "label_values(coredns_recursor_build_info{job=\"$job\"}, instance)",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
-        "sort": 0,
+        "sort": 1,
         "tagValuesQuery": "",
         "tags": [],
         "tagsQuery": "",
@@ -1207,20 +1124,18 @@
       {
         "allValue": ".*",
         "current": {
-          "text": "demo.svc",
-          "value": [
-            "demo.svc"
-          ]
+          "text": "All",
+          "value": "$__all"
         },
         "datasource": "prometheus",
-        "definition": "label_values(coredns_recursor_resolvers_info{instance=\"$instance\"}, zone)",
+        "definition": "label_values(coredns_recursor_resolvers_info{job=\"$job\", instance=~\"$instance\"}, zone)",
         "hide": 0,
         "includeAll": true,
         "label": "Zone",
-        "multi": true,
+        "multi": false,
         "name": "zone",
         "options": [],
-        "query": "label_values(coredns_recursor_resolvers_info{instance=\"$instance\"}, zone)",
+        "query": "label_values(coredns_recursor_resolvers_info{job=\"$job\", instance=~\"$instance\"}, zone)",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -1235,19 +1150,17 @@
         "allValue": ".*",
         "current": {
           "text": "All",
-          "value": [
-            "$__all"
-          ]
+          "value": "$__all"
         },
         "datasource": "prometheus",
-        "definition": "label_values(coredns_recursor_resolvers_info{instance=\"$instance\", zone=~\"$zone\"}, resolver)",
+        "definition": "label_values(coredns_recursor_resolvers_info{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\"}, resolver)",
         "hide": 0,
         "includeAll": true,
         "label": "Resolver",
-        "multi": true,
+        "multi": false,
         "name": "resolver",
         "options": [],
-        "query": "label_values(coredns_recursor_resolvers_info{instance=\"$instance\", zone=~\"$zone\"}, resolver)",
+        "query": "label_values(coredns_recursor_resolvers_info{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\"}, resolver)",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -1262,44 +1175,17 @@
         "allValue": ".*",
         "current": {
           "text": "All",
-          "value": [
-            "$__all"
-          ]
+          "value": "$__all"
         },
         "datasource": "prometheus",
-        "definition": "label_values(coredns_recursor_aliases_info{instance=\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\"}, alias)",
+        "definition": "label_values(coredns_recursor_aliases_info{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\"}, alias)",
         "hide": 0,
         "includeAll": true,
         "label": "Alias",
-        "multi": true,
+        "multi": false,
         "name": "alias",
         "options": [],
-        "query": "label_values(coredns_recursor_aliases_info{instance=\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\"}, alias)",
-        "refresh": 2,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
-        "tagValuesQuery": "",
-        "tags": [],
-        "tagsQuery": "",
-        "type": "query",
-        "useTags": false
-      },
-      {
-        "allValue": ".*",
-        "current": {
-          "text": "coredns-cloud-svc",
-          "value": "coredns-cloud-svc"
-        },
-        "datasource": "prometheus",
-        "definition": "label_values(bosh_job_healthy{bosh_job_ip=~\"$instance_ip\"}, bosh_deployment)",
-        "hide": 0,
-        "includeAll": false,
-        "label": "Deployment",
-        "multi": false,
-        "name": "deployment",
-        "options": [],
-        "query": "label_values(bosh_job_healthy{bosh_job_ip=~\"$instance_ip\"}, bosh_deployment)",
+        "query": "label_values(coredns_recursor_aliases_info{job=\"$job\", instance=~\"$instance\", zone=~\"$zone\", resolver=~\"$resolver\"}, alias)",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -1313,7 +1199,7 @@
     ]
   },
   "time": {
-    "from": "now-15m",
+    "from": "now-5m",
     "to": "now"
   },
   "timepicker": {
@@ -1345,5 +1231,5 @@
   "timezone": "utc",
   "title": "CoreDNS Recursor",
   "uid": "drwaRz2Vz",
-  "version": 28
+  "version": 2
 }

@@ -14,7 +14,7 @@ import (
 )
 
 const pluginName = "recursor"
-const pluginVersion = "1.0.0"
+const pluginVersion = "1.0.1"
 const defaultResolverName = "default"
 
 // Name implements the Handler interface.

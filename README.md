@@ -134,7 +134,7 @@ set -eux
 tar xzvf coredns.src.tar.gz
 pushd coredns
   # Add external plugins
-  go get github.com/kinjelom/coredns-recursor@v1.0.0
+  go get github.com/kinjelom/coredns-recursor@latest
   echo -e "recursor:github.com/kinjelom/coredns-recursor" >> plugin.cfg
   # Build
   go generate

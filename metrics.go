@@ -39,13 +39,13 @@ var promQueryServedCountTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Subsystem: pluginName,
 	Name:      "query_served_count_total",
 	Help:      "Total count of served queries",
-}, []string{"zone", "alias", "resolver"})
+}, []string{"zone", "alias", "resolver", "client-ip"})
 var promQueryOmittedCountTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Namespace: plugin.Namespace,
 	Subsystem: pluginName,
 	Name:      "query_omitted_count_total",
 	Help:      "Total count of omitted queries",
-}, []string{"zone", "alias", "reason"})
+}, []string{"zone", "alias", "reason", "client-ip"})
 
 var promResolveCountTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Namespace: plugin.Namespace,

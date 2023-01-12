@@ -73,6 +73,34 @@ func TestRecursor_should_work_with_custom_resolver(t *testing.T) {
 	testQuestion(t, rcu, []uint16{dns.TypeCNAME}, "test.svc", []string{}, 3, true)
 }
 
+func TestRecursor_should_work_as_repeater(t *testing.T) {
+	rcu, _ := createRecursor(recursorCfg{
+		Verbose: verbose,
+		Zone:    "wikipedia.org",
+		Resolvers: map[string]resolverCfg{
+			"default": {
+				Urls:      []string{"udp://8.8.8.8:53"},
+				TimeoutMs: 15,
+			},
+		},
+		Aliases: map[string]aliasCfg{
+			"www": {
+				Hosts: []string{"www.wikipedia.org"},
+				Ttl:   10,
+			},
+			"*": {
+				Hosts: []string{"www.wikipedia.org"},
+				Ttl:   20,
+			},
+		},
+	})
+
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "www.wikipedia.org", []string{"185.15.58.224"}, 10, false)
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "pl.wikipedia.org", []string{"185.15.58.224"}, 20, false)
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "domain-that-doesnt-exist.wikipedia.org", []string{}, 0, true)
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "domain.that.doesnt.exist.wikipedia.org", []string{}, 0, true)
+}
+
 func testQuestion(t *testing.T, rr recursor, qTypes []uint16, question string, expectedIps []string, expectedTtl int, expectedError bool) {
 	rec, code, err := askQuestion(question, qTypes, rr)
 	if err != nil {

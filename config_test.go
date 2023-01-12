@@ -10,7 +10,7 @@ import (
 // Tests the various configs that should be parsed
 
 func TestConfig_should_parse_json(t *testing.T) {
-	filePath := "examples/config.json"
+	filePath := "examples/config1.json"
 	fileBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		t.Fatalf("read config file %s error, %v", filePath, err)
@@ -20,7 +20,7 @@ func TestConfig_should_parse_json(t *testing.T) {
 }
 
 func TestConfig_should_parse_yaml(t *testing.T) {
-	filePath := "examples/config.yaml"
+	filePath := "examples/config1.yaml"
 	fileBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		t.Fatalf("read config file %s error, %v", filePath, err)
@@ -30,18 +30,30 @@ func TestConfig_should_parse_yaml(t *testing.T) {
 }
 
 func TestConfig_controller_should_read_external_json(t *testing.T) {
-	rcu, err := loadCaddyControllerConfig(t, "examples/config-with-json-ref.caddy")
+	rcu, err := loadCaddyControllerConfig(t, "examples/config-with-json-ref1.caddy")
 	checkRcu(t, err, rcu)
 }
 
 func TestConfig_controller_should_read_external_yaml(t *testing.T) {
-	rcu, err := loadCaddyControllerConfig(t, "examples/config-with-yaml-ref.caddy")
+	rcu, err := loadCaddyControllerConfig(t, "examples/config-with-yaml-ref1.caddy")
 	checkRcu(t, err, rcu)
 }
 
 func TestConfig_controller_should_read_inline_caddy(t *testing.T) {
-	rcu, err := loadCaddyControllerConfig(t, "examples/config.caddy")
+	rcu, err := loadCaddyControllerConfig(t, "examples/config1.caddy")
 	checkRcu(t, err, rcu)
+	rcu, err = loadCaddyControllerConfig(t, "examples/config2.caddy")
+	_, found := rcu.Aliases["*"]
+	assert.Nil(t, err)
+	assert.True(t, found)
+	rcu, err = loadCaddyControllerConfig(t, "examples/config3.caddy")
+	_, found = rcu.Aliases["*"]
+	assert.Nil(t, err)
+	assert.True(t, found)
+	rcu, err = loadCaddyControllerConfig(t, "examples/config3.caddy")
+	_, found = rcu.Aliases["x"]
+	assert.Nil(t, err)
+	assert.False(t, found)
 }
 
 func loadCaddyControllerConfig(t *testing.T, filePath string) (recursorCfg, error) {
@@ -58,7 +70,7 @@ func checkRcu(t *testing.T, err error, rcu recursorCfg) {
 		t.Fatalf("expected no errors, but got: %v", err)
 	}
 	assert.Equal(t, 0, rcu.Verbose, "verbose")
-	assert.Equal(t, "example.svc", rcu.Zone, "zone")
+	assert.Equal(t, "example1.svc", rcu.Zone, "zone")
 
 	// resolvers
 	assert.Equal(t, 2, len(rcu.Resolvers), "resolvers len")

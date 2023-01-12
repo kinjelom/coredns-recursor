@@ -14,7 +14,7 @@ import (
 )
 
 const pluginName = "recursor"
-const pluginVersion = "1.0.2"
+const pluginVersion = "1.1.0"
 const defaultResolverName = "default"
 
 // Name implements the Handler interface.
@@ -89,14 +89,13 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
 
-	var aDef aliasDef
-	var ok bool
-	if aDef, ok = r.aliases[alias]; !ok {
+	aDef, aFound, aWidlcard := r.findAlias(alias)
+	if !aFound {
 		promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "alias-not-found", "client_ip": clientIp}).Inc()
 		log.Errorf("Alias not found: zone '%s', domain '%s', alias '%s'", r.zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
-	if len(aDef.hosts) < 1 && len(aDef.ips) < 1 {
+	if !aWidlcard && len(aDef.hosts) < 1 && len(aDef.ips) < 1 {
 		promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "alias-empty-def", "client_ip": clientIp}).Inc()
 		log.Errorf("Empty alias definition: zone '%s', domain '%s', alias '%s'", r.zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
@@ -104,7 +103,11 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 
 	var ips []net.IP
 	ips = ipsAppendUniqe(ips, aDef.ips)
-	for _, host := range aDef.hosts {
+	hosts := aDef.hosts
+	if aWidlcard {
+		hosts = append(hosts, strings.TrimSuffix(domain, "."))
+	}
+	for _, host := range hosts {
 		dynIps, err := multiResolve(ctx, aDef.resolverDefRef, r.zone, domain, alias, host)
 		if err != nil {
 			promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "resolving-error", "client_ip": clientIp}).Inc()
@@ -125,6 +128,18 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 	}
 	promQueryServedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "resolver": aDef.resolverDefRef.name, "client_ip": clientIp}).Inc()
 	return dns.RcodeSuccess, nil
+}
+
+func (r recursor) findAlias(alias string) (aliasDef, bool, bool) {
+	aWildcard := false
+	aDef, aFound := r.aliases[alias]
+	if !aFound {
+		aDef, aFound = r.aliases["*"]
+		if aFound {
+			aWildcard = true
+		}
+	}
+	return aDef, aFound, aWildcard
 }
 
 func multiResolve(ctx context.Context, resolverDefRef *resolverDef, zone string, domain string, alias string, host string) ([]net.IP, error) {

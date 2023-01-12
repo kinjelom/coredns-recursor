@@ -1,6 +1,6 @@
 {
   "verbose": 0,
-  "zone": "example.svc",
+  "zone": "example1.svc",
   "resolvers": {
     "resolver_primary": {
       "urls": ["udp://10.0.0.1:53","udp://10.0.0.2:53"],

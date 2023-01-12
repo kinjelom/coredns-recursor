@@ -11,7 +11,7 @@ import (
 // Tests the various setups
 
 func TestSetup_controller_should_work_with_full_example_config(t *testing.T) {
-	filePath := "examples/config.caddy"
+	filePath := "examples/config1.caddy"
 	fileBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		t.Fatalf("read config file %s error, %v", filePath, err)
@@ -59,4 +59,26 @@ func TestSetup_controller_should_fail_with_incorrect_config(t *testing.T) {
         }
 	}`)
 	assert.Error(t, setup(c), "wrong alias config")
+}
+
+func TestSetup_controller_should_work_with_wildcard_config(t *testing.T) {
+	c := caddy.NewTestController("dns", pluginName+` {
+		alias * {
+        }
+	}`)
+	assert.Nil(t, setup(c), "wildcard aliases don't need hosts or ips")
+
+	c = caddy.NewTestController("dns", pluginName+` {
+		alias * {
+			ips 1.1.1.1
+			hosts www.example.org
+        }
+	}`)
+	assert.Nil(t, setup(c), "wildcard aliases accept hosts and ips")
+
+	c = caddy.NewTestController("dns", pluginName+` {
+		alias not-wildcard {
+        }
+	}`)
+	assert.Error(t, setup(c), "not-wildcard aliases should have ips or hosts defined")
 }

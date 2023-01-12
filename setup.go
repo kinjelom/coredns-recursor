@@ -77,7 +77,7 @@ func createRecursor(cfg recursorCfg) (recursor, error) {
 		r.resolvers[key] = rsl
 	}
 	for key, aCfg := range cfg.Aliases {
-		a, err := createAlias(aCfg, r.resolvers)
+		a, err := createAlias(key, aCfg, r.resolvers)
 		if err != nil {
 			return r, fmt.Errorf("creating alias '%s' error: %w, config: %s", key, err, aCfg.String())
 		}
@@ -117,14 +117,14 @@ func createResolver(name string, p resolverCfg) (resolverDef, error) {
 	}
 }
 
-func createAlias(p aliasCfg, resolvers map[string]resolverDef) (aliasDef, error) {
+func createAlias(aName string, aCfg aliasCfg, resolvers map[string]resolverDef) (aliasDef, error) {
 	a := aliasDef{
 		ips:   []net.IP{},
-		hosts: p.Hosts,
-		ttl:   p.Ttl,
+		hosts: aCfg.Hosts,
+		ttl:   aCfg.Ttl,
 	}
 	var ips []net.IP
-	for _, ip := range p.Ips {
+	for _, ip := range aCfg.Ips {
 		addr := net.ParseIP(ip)
 		if addr != nil {
 			ips = append(ips, addr)
@@ -133,12 +133,14 @@ func createAlias(p aliasCfg, resolvers map[string]resolverDef) (aliasDef, error)
 		}
 	}
 	a.ips = ips
-	if len(a.ips) == 0 && len(a.hosts) == 0 {
-		return a, fmt.Errorf("alias ips and hosts are empty")
+	if aName != "*" {
+		if len(a.ips) == 0 && len(a.hosts) == 0 {
+			return a, fmt.Errorf("alias ips and hosts are empty")
+		}
 	}
 	rslName := defaultResolverName
-	if len(p.ResolverName) > 0 {
-		rslName = p.ResolverName
+	if len(aCfg.ResolverName) > 0 {
+		rslName = aCfg.ResolverName
 	}
 	if r, ok := resolvers[rslName]; ok {
 		a.resolverDefRef = &r

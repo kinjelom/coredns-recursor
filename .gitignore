@@ -4,4 +4,5 @@ go.sum
 build/
 release/
 vendor/
-  
+.bak
+

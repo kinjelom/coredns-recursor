@@ -102,19 +102,19 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 	}
 
 	var ips []net.IP
-	ips = ipsAppendUniqe(ips, aDef.ips)
+	ips = ipsAppendUnique(ips, aDef.ips)
 	hosts := aDef.hosts
 	if aWildcard {
 		hosts = append(hosts, strings.TrimSuffix(domain, "."))
 	}
 	for _, host := range hosts {
-		dynIps, err := multiResolve(ctx, aDef.resolverDefRef, r.zone, domain, alias, host)
+		dynIps, err := multiResolve(ctx, aDef.resolverDefRef, r.zone, alias, host)
 		if err != nil {
 			promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "resolving-error", "client_ip": clientIp}).Inc()
 			log.Errorf("Could not resolve host '%s': zone '%s', domain '%s', alias '%s'", host, r.zone, domain, alias)
 			return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 		}
-		ips = ipsAppendUniqe(ips, dynIps)
+		ips = ipsAppendUnique(ips, dynIps)
 	}
 
 	aMsg := createDnsAnswer(query, r.zone, domain, alias, aDef.resolverDefRef.name, ips, qA, qAAAA, aDef.ttl)
@@ -142,7 +142,7 @@ func (r recursor) findAlias(alias string) (aliasDef, bool, bool) {
 	return aDef, aFound, aWildcard
 }
 
-func multiResolve(ctx context.Context, resolverDefRef *resolverDef, zone string, domain string, alias string, host string) ([]net.IP, error) {
+func multiResolve(ctx context.Context, resolverDefRef *resolverDef, zone string, alias string, host string) ([]net.IP, error) {
 	var lastErr error
 	for ri, rslRef := range resolverDefRef.resolverRefs {
 		rslUrl := resolverDefRef.urls[ri]
@@ -184,7 +184,7 @@ func extractQuestions(questions []dns.Question) (bool, bool) {
 	return qA, qAAAA
 }
 
-func ipsAppendUniqe(dest []net.IP, src []net.IP) []net.IP {
+func ipsAppendUnique(dest []net.IP, src []net.IP) []net.IP {
 	for _, ip := range src {
 		if !ipsExists(dest, ip) {
 			dest = append(dest, ip)

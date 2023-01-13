@@ -73,4 +73,4 @@ var promResolveIpCountTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help:      "Total count of answers",
 }, []string{"zone", "alias", "resolver", "ip"})
 
-var once sync.Once
+var _ sync.Once

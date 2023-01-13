@@ -89,13 +89,13 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
 
-	aDef, aFound, aWidlcard := r.findAlias(alias)
+	aDef, aFound, aWildcard := r.findAlias(alias)
 	if !aFound {
 		promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "alias-not-found", "client_ip": clientIp}).Inc()
 		log.Errorf("Alias not found: zone '%s', domain '%s', alias '%s'", r.zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
-	if !aWidlcard && len(aDef.hosts) < 1 && len(aDef.ips) < 1 {
+	if !aWildcard && len(aDef.hosts) < 1 && len(aDef.ips) < 1 {
 		promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "alias-empty-def", "client_ip": clientIp}).Inc()
 		log.Errorf("Empty alias definition: zone '%s', domain '%s', alias '%s'", r.zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
@@ -104,7 +104,7 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 	var ips []net.IP
 	ips = ipsAppendUniqe(ips, aDef.ips)
 	hosts := aDef.hosts
-	if aWidlcard {
+	if aWildcard {
 		hosts = append(hosts, strings.TrimSuffix(domain, "."))
 	}
 	for _, host := range hosts {

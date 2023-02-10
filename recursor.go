@@ -14,7 +14,7 @@ import (
 )
 
 const pluginName = "recursor"
-const pluginVersion = "1.1.0"
+const pluginVersion = "1.1.2"
 const defaultResolverName = "default"
 
 // Name implements the Handler interface.
@@ -77,7 +77,7 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 	alias := strings.TrimSuffix(domain, zoneSuffix)
 	port := state.LocalPort()
 	if r.verbose > 0 {
-		log.Infof("Recursor query domain '%s', alias '%s', zone '%s', port '%s', client_ip '%s'", domain, alias, r.zone, port, clientIp)
+		log.Infof("Recursor query domain '%s', alias '%s', port '%s', zone '%s', client_ip '%s'", domain, alias, port, r.zone, clientIp)
 	}
 
 	qA, qAAAA := extractQuestions(query.Question)
@@ -85,20 +85,20 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 		log.Infof("Recursor query:  A=%t, AAAA=%t, client_ip=%s\n```\n%s```", qA, qAAAA, clientIp, query.String())
 	}
 	if !qA && !qAAAA {
-		promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "not-supported-query-code", "client_ip": clientIp}).Inc()
-		log.Errorf("Query code not supported: zone '%s', domain '%s', alias '%s'", r.zone, domain, alias)
+		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "reason": "not-supported-query-code", "client_ip": clientIp}).Inc()
+		log.Errorf("Query code not supported: port '%s', zone '%s', domain '%s', alias '%s'", port, r.zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
 
 	aDef, aFound, aWildcard := r.findAlias(alias)
 	if !aFound {
-		promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "alias-not-found", "client_ip": clientIp}).Inc()
-		log.Errorf("Alias not found: zone '%s', domain '%s', alias '%s'", r.zone, domain, alias)
+		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "reason": "alias-not-found", "client_ip": clientIp}).Inc()
+		log.Errorf("Alias not found: port '%s', zone '%s', domain '%s', alias '%s'", port, r.zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
 	if !aWildcard && len(aDef.hosts) < 1 && len(aDef.ips) < 1 {
-		promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "alias-empty-def", "client_ip": clientIp}).Inc()
-		log.Errorf("Empty alias definition: zone '%s', domain '%s', alias '%s'", r.zone, domain, alias)
+		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "reason": "alias-empty-def", "client_ip": clientIp}).Inc()
+		log.Errorf("Empty alias definition: port '%s', zone '%s', domain '%s', alias '%s'", port, r.zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
 
@@ -109,16 +109,16 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 		hosts = append(hosts, strings.TrimSuffix(domain, "."))
 	}
 	for _, host := range hosts {
-		dynIps, err := multiResolve(ctx, aDef.resolverDefRef, r.zone, alias, host)
+		dynIps, err := multiResolve(ctx, aDef.resolverDefRef, port, r.zone, alias, host)
 		if err != nil {
-			promQueryOmittedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "reason": "resolving-error", "client_ip": clientIp}).Inc()
-			log.Errorf("Could not resolve host '%s': zone '%s', domain '%s', alias '%s'", host, r.zone, domain, alias)
+			promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "reason": "resolving-error", "client_ip": clientIp}).Inc()
+			log.Errorf("Could not resolve host '%s': port '%s', zone '%s', domain '%s', alias '%s'", host, port, r.zone, domain, alias)
 			return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 		}
 		ips = ipsAppendUnique(ips, dynIps)
 	}
 
-	aMsg := createDnsAnswer(query, r.zone, domain, alias, aDef.resolverDefRef.name, ips, qA, qAAAA, aDef.ttl)
+	aMsg := createDnsAnswer(query, port, r.zone, domain, alias, aDef.resolverDefRef.name, ips, qA, qAAAA, aDef.ttl)
 	if r.verbose > 1 {
 		log.Infof("Recursor answer:\n```\n%s```", aMsg.String())
 	}
@@ -127,7 +127,7 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 		log.Errorf("Could not write message: %v", err)
 		return dns.RcodeServerFailure, err
 	}
-	promQueryServedCountTotal.With(prometheus.Labels{"zone": r.zone, "alias": alias, "resolver": aDef.resolverDefRef.name, "client_ip": clientIp}).Inc()
+	promQueryServedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "resolver": aDef.resolverDefRef.name, "client_ip": clientIp}).Inc()
 	return dns.RcodeSuccess, nil
 }
 
@@ -143,7 +143,7 @@ func (r recursor) findAlias(alias string) (aliasDef, bool, bool) {
 	return aDef, aFound, aWildcard
 }
 
-func multiResolve(ctx context.Context, resolverDefRef *resolverDef, zone string, alias string, host string) ([]net.IP, error) {
+func multiResolve(ctx context.Context, resolverDefRef *resolverDef, port string, zone string, alias string, host string) ([]net.IP, error) {
 	var lastErr error
 	for ri, rslRef := range resolverDefRef.resolverRefs {
 		rslUrl := resolverDefRef.urls[ri]
@@ -154,7 +154,7 @@ func multiResolve(ctx context.Context, resolverDefRef *resolverDef, zone string,
 		if err != nil {
 			result = "error"
 		}
-		labels := prometheus.Labels{"zone": zone, "alias": alias, "resolver": resolverDefRef.name, "host": host, "result": result}
+		labels := prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": resolverDefRef.name, "host": host, "result": result}
 		promResolveDurationMs.With(labels).Set(float64(elapsed.Milliseconds()))
 		promResolveCountTotal.With(labels).Inc()
 		promResolveDurationMsTotal.With(labels).Add(float64(elapsed.Milliseconds()))
@@ -203,7 +203,7 @@ func ipsExists(arr []net.IP, ipaToFind net.IP) bool {
 	return false
 }
 
-func createDnsAnswer(qMsg *dns.Msg, zone string, domain string, alias string, resolver string, ips []net.IP, qA bool, qAAAA bool, ttl uint32) *dns.Msg {
+func createDnsAnswer(qMsg *dns.Msg, port string, zone string, domain string, alias string, resolver string, ips []net.IP, qA bool, qAAAA bool, ttl uint32) *dns.Msg {
 	aMsg := new(dns.Msg)
 	aMsg.SetReply(qMsg)
 	aMsg.Answer = []dns.RR{}
@@ -236,7 +236,7 @@ func createDnsAnswer(qMsg *dns.Msg, zone string, domain string, alias string, re
 		}
 
 		if resRec != nil {
-			promResolveIpCountTotal.With(prometheus.Labels{"zone": zone, "alias": alias, "resolver": resolver, "ip": ip.String()}).Inc()
+			promResolveIpCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": resolver, "ip": ip.String()}).Inc()
 			aMsg.Answer = append(aMsg.Answer, resRec)
 		}
 	}

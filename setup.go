@@ -28,7 +28,7 @@ func setup(c *caddy.Controller) error {
 	if err != nil {
 		return plugin.Error(pluginName, fmt.Errorf("%s/%s create recursor error: %w", pluginName, pluginVersion, err))
 	}
-	updateInfoMetrics(rcu)
+	updateInfoMetrics(cfg.Port, rcu)
 	if rcu.verbose > 1 {
 		log.Infof("Plugin %s/%s created (zone '%s'): %s", pluginName, pluginVersion, rcu.zone, rcu.String())
 	}
@@ -42,18 +42,18 @@ func setup(c *caddy.Controller) error {
 	return nil
 }
 
-func updateInfoMetrics(rcu recursor) {
+func updateInfoMetrics(port string, rcu recursor) {
 	promBuildInfo.With(prometheus.Labels{"version": pluginVersion}).Set(0)
 	for name, def := range rcu.resolvers {
-		promResolvesInfo.With(prometheus.Labels{"zone": rcu.zone, "resolver": name, "urls": strings.Join(def.urls, ",")}).Set(1)
+		promResolvesInfo.With(prometheus.Labels{"port": port, "zone": rcu.zone, "resolver": name, "urls": strings.Join(def.urls, ",")}).Set(1)
 	}
 	for name, def := range rcu.aliases {
-		promAliasesInfo.With(prometheus.Labels{"zone": rcu.zone, "alias": name, "resolver": def.resolverDefRef.name, "ttl": strconv.Itoa(int(def.ttl))}).Set(1)
+		promAliasesInfo.With(prometheus.Labels{"port": port, "zone": rcu.zone, "alias": name, "resolver": def.resolverDefRef.name, "ttl": strconv.Itoa(int(def.ttl))}).Set(1)
 		for _, host := range def.hosts {
-			promAliasesEntriesInfo.With(prometheus.Labels{"zone": rcu.zone, "alias": name, "resolver": def.resolverDefRef.name, "type": "host", "entry": host}).Set(1)
+			promAliasesEntriesInfo.With(prometheus.Labels{"port": port, "zone": rcu.zone, "alias": name, "resolver": def.resolverDefRef.name, "type": "host", "entry": host}).Set(1)
 		}
 		for _, ip := range def.ips {
-			promAliasesEntriesInfo.With(prometheus.Labels{"zone": rcu.zone, "alias": name, "resolver": def.resolverDefRef.name, "type": "ip", "entry": ip.String()}).Set(1)
+			promAliasesEntriesInfo.With(prometheus.Labels{"port": port, "zone": rcu.zone, "alias": name, "resolver": def.resolverDefRef.name, "type": "ip", "entry": ip.String()}).Set(1)
 		}
 	}
 }

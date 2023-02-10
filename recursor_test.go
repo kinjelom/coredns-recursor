@@ -95,8 +95,8 @@ func TestRecursor_should_work_as_repeater(t *testing.T) {
 		},
 	})
 
-	testQuestion(t, rcu, []uint16{dns.TypeA}, "www.wikipedia.org", []string{"185.15.58.224"}, 10, false)
-	testQuestion(t, rcu, []uint16{dns.TypeA}, "pl.wikipedia.org", []string{"185.15.58.224"}, 20, false)
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "www.wikipedia.org", []string{"91.198.174.192"}, 10, false)
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "pl.wikipedia.org", []string{"91.198.174.192"}, 20, false)
 	testQuestion(t, rcu, []uint16{dns.TypeA}, "domain-that-doesnt-exist.wikipedia.org", []string{}, 0, true)
 	testQuestion(t, rcu, []uint16{dns.TypeA}, "domain.that.doesnt.exist.wikipedia.org", []string{}, 0, true)
 }

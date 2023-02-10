@@ -75,8 +75,9 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 		domain = domain + zoneSuffix
 	}
 	alias := strings.TrimSuffix(domain, zoneSuffix)
+	port := state.LocalPort()
 	if r.verbose > 0 {
-		log.Infof("Recursor query domain '%s', alias '%s', zone '%s', client_ip '%s'", domain, alias, r.zone, clientIp)
+		log.Infof("Recursor query domain '%s', alias '%s', zone '%s', port '%s', client_ip '%s'", domain, alias, r.zone, port, clientIp)
 	}
 
 	qA, qAAAA := extractQuestions(query.Question)

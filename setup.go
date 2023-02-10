@@ -18,7 +18,8 @@ import (
 func init() { plugin.Register(pluginName, setup) }
 
 func setup(c *caddy.Controller) error {
-	log.Infof("Setup plugin %s/%s", pluginName, pluginVersion)
+	cfg := dnsserver.GetConfig(c)
+	log.Infof("Setup plugin %s/%s, zone: %s, port: %s", pluginName, pluginVersion, cfg.Zone, cfg.Port)
 	rcuCfg, err := readCaddyControllerConfig(c)
 	if err != nil {
 		return plugin.Error(pluginName, fmt.Errorf("%s/%s read config error: %w", pluginName, pluginVersion, err))
@@ -31,7 +32,7 @@ func setup(c *caddy.Controller) error {
 	if rcu.verbose > 1 {
 		log.Infof("Plugin %s/%s created (zone '%s'): %s", pluginName, pluginVersion, rcu.zone, rcu.String())
 	}
-	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
+	cfg.AddPlugin(func(next plugin.Handler) plugin.Handler {
 		rcu.Next = next
 		if rcu.verbose > 0 {
 			log.Infof("Plugin %s/%s added (zone '%s')", pluginName, pluginVersion, rcu.zone)

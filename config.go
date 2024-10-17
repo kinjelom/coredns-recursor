@@ -24,6 +24,7 @@ func (rcu recursorCfg) String() string {
 type aliasCfg struct {
 	Hosts        []string `json:"hosts" yaml:"hosts"`
 	Ips          []string `json:"ips" yaml:"ips"`
+	ShuffleIps   bool     `json:"shuffle_ips" yaml:"shuffle_ips"`
 	Ttl          uint32   `json:"ttl" yaml:"ttl"`
 	ResolverName string   `json:"resolver_name" yaml:"resolver_name"`
 }
@@ -175,6 +176,11 @@ func readAliasCfg(c *caddy.Controller) (aliasCfg, error) {
 				return cfg, fmt.Errorf("empty hosts list")
 			}
 			cfg.Hosts = args
+		case "shuffle_ips":
+			if len(args) != 1 {
+				return cfg, fmt.Errorf("wrong 'shuffle_ips' definition")
+			}
+			cfg.ShuffleIps = args[0] == "true"
 		case "resolver_name":
 			if len(args) != 1 {
 				return cfg, fmt.Errorf("wrong 'resolver_name' definition")

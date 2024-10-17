@@ -8,22 +8,23 @@ The `recursor` resolves domains using defined IP addresses or resolving other ma
 
 ## Config Syntax / Examples
 
-The `recursor` definition:
-- `zone` - DNS zone for the recursor
-- `verbose` - stdout logs level: 
-  - `0` - minimal
-  - `1` - middle
-  - `2` - talkative
-- `resolvers` - other DNS servers:
-  - *map-key/id*: name of resolver, `default` overrides system default resolver  
-  - `urls`: list of URL addresses, example: `udp://127.0.0.1:53` (system default is represented by `://default`)
-  - `timeout_ms`: resolver connection timeout in millisecods 
-- `aliases` - domain aliases:
-    - *map-key/id*: name of alias, subdomain or `*` if you want the recursor to be a DNS repeater
-    - `ips`: IP addresses to return as a part of answer
-  - `hosts`: domains to be resolved so that the IP addresses obtained in this way will be returned as a part of answer
-  - `resolver_name`: the defined resolver reference, default is... `default` of course :)
-  - `ttl`: DNS record Time To Live in seconds
+The `recursor` configuration includes the following definitions:
+- `zone`: The DNS zone for the recursor.
+- `verbose`: The logging level for stdout:
+  - `0`: minimal logging
+  - `1`: moderate logging
+  - `2`: detailed logging
+- `resolvers`: Other DNS servers to use:
+  - *map-key/id*: The name of the resolver. The `default` overrides the system's default resolver.
+  - `urls`: A list of URL addresses, e.g., `udp://127.0.0.1:53` (the system default is represented by `://default`).
+  - `timeout_ms`: The connection timeout for the resolver, in milliseconds.
+- `aliases`: Domain aliases:
+  - *map-key/id*: The alias name, a subdomain, or `*` if you want the recursor to act as a DNS repeater.
+  - `ips`: A list of IP addresses to be returned as part of the response.
+  - `hosts`: Domains that will be resolved, with the resulting IP addresses returned in the response.
+  - `shuffle_ips`: Default is `false`. If set to `true`, IP addresses will be returned in random order.
+  - `resolver_name`: The name of the resolver to use. The default is... well, `default`, of course :)
+  - `ttl`: Time To Live for the DNS record, in seconds.
 
 #### Corefile
 
@@ -46,6 +47,7 @@ recursor {
     }  
     alias alias1 {
         hosts www.example.org www.example.com
+        shuffle_ips true
         resolver_name dns-c
         ttl 11
     }
@@ -86,6 +88,7 @@ recursor {
         aliases:
           alias1:
             hosts: [ www.example.org, www.example.com ]
+            shuffle_ips: true
             resolver_name: dns-c
             ttl: 11
           alias2:
@@ -124,6 +127,7 @@ recursor {
   "aliases": {
     "alias1": {
       "hosts": [ "www.example.org", "www.example.com" ],
+      "shuffle_ips": true,
       "resolver_name": "dns-c",
       "ttl": 11
     },
@@ -164,25 +168,24 @@ recursor {
 ### Build It
 
 ```bash
-#!/usr/bin/env bash
+#!/bin/bash eu
 
-set -eux
 # Extract coredns source code
 tar xzvf coredns.src.tar.gz
 pushd coredns
   # Add external plugins
   go get github.com/kinjelom/coredns-recursor@latest
-  echo -e "recursor:github.com/kinjelom/coredns-recursor" >> plugin.cfg
+  grep -q '^recursor:' plugin.cfg || echo -e "recursor:github.com/kinjelom/coredns-recursor" >> plugin.cfg
   # Build
   go generate
   go build
   ./coredns -plugins
 popd
 ```
+
 ### Deployments Ready to Use
 
 - [BOSH Release](https://github.com/kinjelom/coredns-boshrelease)
-- [Kubernetes](https://github.com/kinjelom/coredns-k8s)
 
 ## Try it
 

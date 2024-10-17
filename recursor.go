@@ -8,13 +8,14 @@ import (
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
+	"math/rand"
 	"net"
 	"strings"
 	"time"
 )
 
 const pluginName = "recursor"
-const pluginVersion = "1.1.3"
+const pluginVersion = "1.2.0"
 const defaultResolverName = "default"
 
 // Name implements the Handler interface.
@@ -51,6 +52,7 @@ func (r resolverDef) String() string {
 type aliasDef struct {
 	hosts          []string
 	ips            []net.IP
+	shuffleIps     bool
 	ttl            uint32
 	resolverDefRef *resolverDef
 }
@@ -116,6 +118,11 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 			return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 		}
 		ips = ipsAppendUnique(ips, dynIps)
+	}
+	if aDef.shuffleIps {
+		rand.Shuffle(len(ips), func(i, j int) {
+			ips[i], ips[j] = ips[j], ips[i]
+		})
 	}
 
 	aMsg := createDnsAnswer(query, port, r.zone, domain, alias, aDef.resolverDefRef.name, ips, qA, qAAAA, aDef.ttl)
@@ -196,7 +203,7 @@ func ipsAppendUnique(dest []net.IP, src []net.IP) []net.IP {
 
 func ipsExists(arr []net.IP, ipaToFind net.IP) bool {
 	for _, ipa := range arr {
-		if strings.EqualFold(ipa.String(), ipaToFind.String()) {
+		if ipa.Equal(ipaToFind) {
 			return true
 		}
 	}

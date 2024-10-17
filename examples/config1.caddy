@@ -13,6 +13,7 @@ recursor {
     alias alias1 {
         ips 10.1.1.1 10.1.1.2
         hosts www.example.org www.example.com
+        shuffle_ips true
         ttl 5
         resolver_name resolver_primary
     }

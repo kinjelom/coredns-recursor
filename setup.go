@@ -120,9 +120,10 @@ func createResolver(name string, p resolverCfg) (resolverDef, error) {
 
 func createAlias(aName string, aCfg aliasCfg, resolvers map[string]resolverDef) (aliasDef, error) {
 	a := aliasDef{
-		ips:   []net.IP{},
-		hosts: aCfg.Hosts,
-		ttl:   aCfg.Ttl,
+		ips:        []net.IP{},
+		hosts:      aCfg.Hosts,
+		shuffleIps: aCfg.ShuffleIps,
+		ttl:        aCfg.Ttl,
 	}
 	var ips []net.IP
 	for _, ip := range aCfg.Ips {

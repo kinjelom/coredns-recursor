@@ -191,6 +191,7 @@ popd
 
 Helpful commands:
 ```bash
+# sudo apt-get install dnsutils
 dig alias1.demo.svc @127.0.0.1 -p 1053
 nslookup -port=1053 -debug -type=A alias2.demo.svc 127.0.0.1
 ```

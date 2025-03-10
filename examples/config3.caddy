@@ -1,6 +1,5 @@
 recursor {
     verbose 0
-    zone example3.svc
 
     resolver default {
         urls udp://10.0.0.1:53

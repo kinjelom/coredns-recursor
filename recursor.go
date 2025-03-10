@@ -11,44 +11,51 @@ import (
 	"math/rand"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
 const pluginName = "recursor"
-const pluginVersion = "1.2.1"
+const pluginVersion = "1.3.0"
 const defaultResolverName = "default"
-
-// Name implements the Handler interface.
-func (r recursor) Name() string { return pluginName }
 
 var log = clog.NewWithPlugin(pluginName)
 
+// recursor configuration.
+// Note: "zone" is removed as it will be taken from the parent CoreDNS configuration.
 type recursor struct {
-	zone      string
-	aliases   map[string]aliasDef
-	resolvers map[string]resolverDef
-	verbose   int
-	Next      plugin.Handler
+	random     *rand.Rand
+	configZone string
+	aliases    map[string]aliasDef
+	resolvers  map[string]resolverDef
+	verbose    int
+	Next       plugin.Handler
 }
 
+// Name returns the plugin name.
+func (r recursor) Name() string { return pluginName }
+
+// String returns a string representation of the recursor.
 func (r recursor) String() string {
 	nextPluginName := "nil"
 	if r.Next != nil {
 		nextPluginName = r.Next.Name()
 	}
-	return fmt.Sprintf("{name: %s, zone: %s, resolvers: {%v}, aliases: {%v}, verbose: %v, next-plugin-handler: %v}", r.Name(), r.zone, r.resolvers, r.aliases, r.verbose, nextPluginName)
+	return fmt.Sprintf("{name: %s, zone: %s, resolvers: {%v}, aliases: {%v}, verbose: %v, next-plugin-handler: %v}", r.Name(), r.configZone, r.resolvers, r.aliases, r.verbose, nextPluginName)
 }
 
+// resolverDef holds resolver settings.
 type resolverDef struct {
 	name         string
 	resolverRefs []*net.Resolver
 	urls         []string
 }
 
-func (r resolverDef) String() string {
-	return fmt.Sprintf("[%v]", r.urls)
+func (rd resolverDef) String() string {
+	return fmt.Sprintf("[%v]", rd.urls)
 }
 
+// aliasDef holds alias settings.
 type aliasDef struct {
 	hosts          []string
 	ips            []net.IP
@@ -57,168 +64,194 @@ type aliasDef struct {
 	resolverDefRef *resolverDef
 }
 
-func (r aliasDef) String() string {
-	hosts := "[" + strings.Join(r.hosts, ",") + "]"
-	addresses := "["
-	for _, addr := range r.ips {
-		addresses += addr.String() + ","
+func (a aliasDef) String() string {
+	hostsStr := "[" + strings.Join(a.hosts, ",") + "]"
+	ipsStr := "["
+	for _, ip := range a.ips {
+		ipsStr += ip.String() + ","
 	}
-	addresses += "]"
-	return fmt.Sprintf("{hosts: %s, ips: %s, ttl: %v, resolver: %s}", hosts, addresses, r.ttl, r.resolverDefRef.urls)
+	ipsStr += "]"
+	return fmt.Sprintf("{hosts: %s, ips: %s, ttl: %v, resolver: %s}", hostsStr, ipsStr, a.ttl, a.resolverDefRef.urls)
 }
 
-// ServeDNS implements the plugin.Handler interface. This method gets called when plugin is used in a Server.
+// ServeDNS handles DNS queries.
 func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *dns.Msg) (int, error) {
 	state := request.Request{W: out, Req: query}
 	clientIp := state.IP()
 	domain := dns.CanonicalName(state.Name())
-	zoneSuffix := "." + dns.CanonicalName(r.zone)
-	if !strings.HasSuffix(domain, zoneSuffix) {
-		domain = domain + zoneSuffix
-	}
-	alias := strings.TrimSuffix(domain, zoneSuffix)
+	zone := r.configZone
+	zoneSuffix := strings.Trim(r.configZone, ". ")
+	alias := strings.TrimSuffix(strings.Trim(domain, "."), "."+zoneSuffix)
 	port := state.LocalPort()
 	if r.verbose > 0 {
-		log.Infof("Recursor query domain '%s', alias '%s', port '%s', zone '%s', client_ip '%s'", domain, alias, port, r.zone, clientIp)
+		log.Infof("Recursor query: domain '%s', alias '%s', port '%s', config-zone '%s', state-zone '%s', client_ip '%s'", domain, alias, port, r.configZone, state.Zone, clientIp)
 	}
-
 	qA, qAAAA := extractQuestions(query.Question)
 	if r.verbose > 1 {
-		log.Infof("Recursor query:  A=%t, AAAA=%t, client_ip=%s\n```\n%s```", qA, qAAAA, clientIp, query.String())
+		log.Infof("Recursor query details: A=%t, AAAA=%t, client_ip=%s\n```\n%s```", qA, qAAAA, clientIp, query.String())
 	}
 	if !qA && !qAAAA {
-		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "reason": "not-supported-query-code", "client_ip": clientIp}).Inc()
-		log.Errorf("Query code not supported: port '%s', zone '%s', domain '%s', alias '%s'", port, r.zone, domain, alias)
+		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "reason": "not-supported-query-code", "client_ip": clientIp}).Inc()
+		log.Errorf("Query code not supported: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
 
-	aDef, aFound, aWildcard := r.findAlias(alias)
-	if !aFound {
-		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "reason": "alias-not-found", "client_ip": clientIp}).Inc()
-		log.Errorf("Alias not found: port '%s', zone '%s', domain '%s', alias '%s'", port, r.zone, domain, alias)
+	aliasDef, found, isWildcard := r.findAlias(alias)
+	if !found {
+		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "reason": "alias-not-found", "client_ip": clientIp}).Inc()
+		log.Errorf("Alias not found: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
-	if !aWildcard && len(aDef.hosts) < 1 && len(aDef.ips) < 1 {
-		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "reason": "alias-empty-def", "client_ip": clientIp}).Inc()
-		log.Errorf("Empty alias definition: port '%s', zone '%s', domain '%s', alias '%s'", port, r.zone, domain, alias)
-		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
+	if isWildcard {
+		if len(aliasDef.hosts) == 0 && len(aliasDef.ips) == 0 {
+			aliasDef.hosts = []string{"*"}
+		}
+	} else {
+		if len(aliasDef.hosts) == 0 && len(aliasDef.ips) == 0 {
+			promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "reason": "alias-empty-def", "client_ip": clientIp}).Inc()
+			log.Errorf("Empty alias definition: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
+			return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
+		}
 	}
 
+	// Start with statically defined IPs
 	var ips []net.IP
-	ips = ipsAppendUnique(ips, aDef.ips)
-	hosts := aDef.hosts
-	if aWildcard {
-		hosts = append(hosts, strings.TrimSuffix(domain, "."))
-	}
+	ips = ipsAppendUnique(ips, aliasDef.ips)
+	hosts := aliasDef.hosts
+	// Resolve dynamic IPs for each host.
 	for _, host := range hosts {
-		dynIps, err := multiResolve(ctx, aDef.resolverDefRef, port, r.zone, alias, host)
+		// If host is "*", use the original query name.
+		queryHost := host
+		if host == "*" {
+			queryHost = state.Name()
+		}
+		dynIps, err := multiResolve(ctx, aliasDef.resolverDefRef, port, zone, alias, queryHost)
 		if err != nil {
-			promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "reason": "resolving-error", "client_ip": clientIp}).Inc()
-			log.Errorf("Could not resolve host '%s': port '%s', zone '%s', domain '%s', alias '%s'", host, port, r.zone, domain, alias)
+			promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "reason": "resolving-error", "client_ip": clientIp}).Inc()
+			log.Errorf("Could not resolve host '%s': port '%s', zone '%s', domain '%s', alias '%s'", host, port, zone, domain, alias)
 			return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 		}
 		ips = ipsAppendUnique(ips, dynIps)
 	}
-	if aDef.shuffleIps {
-		rand.Shuffle(len(ips), func(i, j int) {
+	// Shuffle IPs if configured.
+	if aliasDef.shuffleIps {
+		r.random.Shuffle(len(ips), func(i, j int) {
 			ips[i], ips[j] = ips[j], ips[i]
 		})
 	}
-
-	aMsg := createDnsAnswer(query, port, r.zone, domain, alias, aDef.resolverDefRef.name, ips, qA, qAAAA, aDef.ttl)
+	dnsMsg := createDnsAnswer(query, port, zone, domain, alias, aliasDef.resolverDefRef.name, ips, qA, qAAAA, aliasDef.ttl)
 	if r.verbose > 1 {
-		log.Infof("Recursor answer:\n```\n%s```", aMsg.String())
+		log.Infof("Recursor answer:\n```\n%s```", dnsMsg.String())
 	}
-	err := out.WriteMsg(aMsg)
+	err := out.WriteMsg(dnsMsg)
 	if err != nil {
 		log.Errorf("Could not write message: %v", err)
 		return dns.RcodeServerFailure, err
 	}
-	promQueryServedCountTotal.With(prometheus.Labels{"port": port, "zone": r.zone, "alias": alias, "resolver": aDef.resolverDefRef.name, "client_ip": clientIp}).Inc()
+	promQueryServedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": aliasDef.resolverDefRef.name, "client_ip": clientIp}).Inc()
 	return dns.RcodeSuccess, nil
 }
 
+// findAlias returns the alias definition and flags indicating if found and if it is a wildcard alias.
 func (r recursor) findAlias(alias string) (aliasDef, bool, bool) {
-	aWildcard := false
-	aDef, aFound := r.aliases[alias]
-	if !aFound {
-		aDef, aFound = r.aliases["*"]
-		if aFound {
-			aWildcard = true
+	isWildcard := false
+	aDef, found := r.aliases[alias]
+	if !found {
+		aDef, found = r.aliases["*"]
+		if found {
+			isWildcard = true
 		}
 	}
-	return aDef, aFound, aWildcard
+	return aDef, found, isWildcard
 }
 
-func multiResolve(ctx context.Context, resolverDefRef *resolverDef, port string, zone string, alias string, host string) ([]net.IP, error) {
+// multiResolve queries the resolver(s) in parallel and returns the first successful result.
+func multiResolve(ctx context.Context, resolverDefRef *resolverDef, port, zone, alias, host string) ([]net.IP, error) {
+	type result struct {
+		ips         []net.IP
+		err         error
+		elapsed     time.Duration
+		resolverURL string
+	}
+	resCh := make(chan result, len(resolverDefRef.resolverRefs))
+	var wg sync.WaitGroup
+	for ri, resolver := range resolverDefRef.resolverRefs {
+		resolverURL := resolverDefRef.urls[ri]
+		wg.Add(1)
+		go func(rsl *net.Resolver, resolverURL string) {
+			defer wg.Done()
+			start := time.Now()
+			ips, err := rsl.LookupIP(ctx, "ip", host)
+			elapsed := time.Since(start)
+			resCh <- result{ips: ips, err: err, elapsed: elapsed, resolverURL: resolverURL}
+		}(resolver, resolverURL)
+	}
+	wg.Wait()
+	close(resCh)
 	var lastErr error
-	for ri, rslRef := range resolverDefRef.resolverRefs {
-		rslUrl := resolverDefRef.urls[ri]
-		start := time.Now()
-		ips, err := rslRef.LookupIP(ctx, "ip", host)
-		elapsed := time.Since(start)
-		result := "success"
-		if err != nil {
-			result = "error"
+	for res := range resCh {
+		labels := prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": resolverDefRef.name, "host": host}
+		resultLabel := "success"
+		if res.err != nil {
+			resultLabel = "error"
 		}
-		labels := prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": resolverDefRef.name, "host": host, "result": result}
-		promResolveDurationMs.With(labels).Set(float64(elapsed.Milliseconds()))
+		labels["result"] = resultLabel
+		promResolveDurationMs.With(labels).Set(float64(res.elapsed.Milliseconds()))
 		promResolveCountTotal.With(labels).Inc()
-		promResolveDurationMsTotal.With(labels).Add(float64(elapsed.Milliseconds()))
-		if err == nil {
-			return ips, nil
+		promResolveDurationMsTotal.With(labels).Add(float64(res.elapsed.Milliseconds()))
+		if res.err == nil && len(res.ips) > 0 {
+			return res.ips, nil
 		} else {
-			lastErr = fmt.Errorf("resolver '%s' error: %w", rslUrl, err)
+			lastErr = fmt.Errorf("resolver '%s' error: %w", res.resolverURL, res.err)
 			log.Warningf(lastErr.Error())
 		}
 	}
 	return nil, lastErr
 }
 
+// extractQuestions checks if the query contains A and/or AAAA questions.
 func extractQuestions(questions []dns.Question) (bool, bool) {
-	qA := false
-	qAAAA := false
+	hasA := false
+	hasAAAA := false
 	for _, q := range questions {
 		switch q.Qtype {
 		case dns.TypeA:
-			qA = true
+			hasA = true
 		case dns.TypeAAAA:
-			qAAAA = true
+			hasAAAA = true
 		case dns.TypeANY:
-			qA = true
-			qAAAA = true
+			hasA = true
+			hasAAAA = true
 		}
 	}
-	return qA, qAAAA
+	return hasA, hasAAAA
 }
 
+// ipsAppendUnique appends IP addresses from src to dest ensuring uniqueness.
 func ipsAppendUnique(dest []net.IP, src []net.IP) []net.IP {
+	seen := make(map[string]struct{})
+	for _, ip := range dest {
+		seen[ip.String()] = struct{}{}
+	}
 	for _, ip := range src {
-		if !ipsExists(dest, ip) {
+		if _, exists := seen[ip.String()]; !exists {
 			dest = append(dest, ip)
+			seen[ip.String()] = struct{}{}
 		}
 	}
 	return dest
 }
 
-func ipsExists(arr []net.IP, ipaToFind net.IP) bool {
-	for _, ipa := range arr {
-		if ipa.Equal(ipaToFind) {
-			return true
-		}
-	}
-	return false
-}
-
-func createDnsAnswer(qMsg *dns.Msg, port string, zone string, domain string, alias string, resolver string, ips []net.IP, qA bool, qAAAA bool, ttl uint32) *dns.Msg {
+// createDnsAnswer constructs the DNS response message.
+func createDnsAnswer(qMsg *dns.Msg, port, zone, domain, alias, resolver string, ips []net.IP, qA bool, qAAAA bool, ttl uint32) *dns.Msg {
 	aMsg := new(dns.Msg)
 	aMsg.SetReply(qMsg)
 	aMsg.Answer = []dns.RR{}
 	for _, ip := range ips {
-		var resRec dns.RR
+		var rr dns.RR
 		if ip.To4() != nil {
 			if qA {
-				resRec = &dns.A{
+				rr = &dns.A{
 					Hdr: dns.RR_Header{
 						Name:   dns.CanonicalName(domain),
 						Rrtype: dns.TypeA,
@@ -230,7 +263,7 @@ func createDnsAnswer(qMsg *dns.Msg, port string, zone string, domain string, ali
 			}
 		} else {
 			if qAAAA {
-				resRec = &dns.AAAA{
+				rr = &dns.AAAA{
 					Hdr: dns.RR_Header{
 						Name:   dns.CanonicalName(domain),
 						Rrtype: dns.TypeAAAA,
@@ -241,10 +274,9 @@ func createDnsAnswer(qMsg *dns.Msg, port string, zone string, domain string, ali
 				}
 			}
 		}
-
-		if resRec != nil {
+		if rr != nil {
 			promResolveIpCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": resolver, "ip": ip.String()}).Inc()
-			aMsg.Answer = append(aMsg.Answer, resRec)
+			aMsg.Answer = append(aMsg.Answer, rr)
 		}
 	}
 	return aMsg

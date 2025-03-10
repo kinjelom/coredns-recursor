@@ -17,9 +17,7 @@ import (
 const verbose = 0
 
 func TestRecursor_should_work_with_default_system_resolver(t *testing.T) {
-	rcu, _ := createRecursor(recursorCfg{
-		Verbose: verbose,
-		Zone:    "svc",
+	rcu, _ := createRecursor("svc", recursorCfg{
 		Aliases: map[string]aliasCfg{
 			"test1": {
 				Ips:   []string{"127.0.0.1"},
@@ -50,9 +48,8 @@ func TestRecursor_should_work_with_default_system_resolver(t *testing.T) {
 }
 
 func TestRecursor_should_work_with_custom_resolver(t *testing.T) {
-	rcu, _ := createRecursor(recursorCfg{
+	rcu, _ := createRecursor("svc", recursorCfg{
 		Verbose: verbose,
-		Zone:    "svc",
 		Resolvers: map[string]resolverCfg{
 			"my_resolver": {
 				Urls:      []string{"udp://8.8.8.8:53"},
@@ -76,9 +73,8 @@ func TestRecursor_should_work_with_custom_resolver(t *testing.T) {
 }
 
 func TestRecursor_should_work_as_repeater(t *testing.T) {
-	rcu, _ := createRecursor(recursorCfg{
+	rcu, _ := createRecursor("one.one.one", recursorCfg{
 		Verbose: verbose,
-		Zone:    "one.one.one",
 		Resolvers: map[string]resolverCfg{
 			"default": {
 				Urls:      []string{"udp://8.8.8.8:53"},
@@ -102,10 +98,62 @@ func TestRecursor_should_work_as_repeater(t *testing.T) {
 	testQuestion(t, rcu, []uint16{dns.TypeA}, "z.y.one.one.one", []string{}, 0, true, "t4")
 }
 
-func TestRecursor_should_shuffle_ips(t *testing.T) {
-	rcu, _ := createRecursor(recursorCfg{
+func TestRecursor_should_work_as_repeater_and_ips(t *testing.T) {
+	rcu, _ := createRecursor("one.one.one", recursorCfg{
 		Verbose: verbose,
-		Zone:    "svc",
+		Resolvers: map[string]resolverCfg{
+			"default": {
+				Urls:      []string{"udp://8.8.8.8:53"},
+				TimeoutMs: 15,
+			},
+		},
+		Aliases: map[string]aliasCfg{
+			"x": {
+				Hosts: []string{"one.one.one.one"},
+				Ttl:   10,
+			},
+			"*": {
+				Ips:   []string{"2.2.2.2"},
+				Hosts: []string{"*"},
+				Ttl:   20,
+			},
+		},
+	})
+
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "x.one.one.one", []string{"1.0.0.1", "1.1.1.1"}, 10, false, "t1")
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "one.one.one.one", []string{"2.2.2.2", "1.0.0.1", "1.1.1.1"}, 20, false, "t2")
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "y.one.one.one", []string{"2.2.2.2"}, 0, true, "t3")
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "z.y.one.one.one", []string{"2.2.2.2"}, 0, true, "t4")
+}
+
+func TestRecursor_should_not_work_as_repeater_with_ips(t *testing.T) {
+	rcu, _ := createRecursor("one.one.one", recursorCfg{
+		Verbose: verbose,
+		Resolvers: map[string]resolverCfg{
+			"default": {
+				Urls:      []string{"udp://8.8.8.8:53"},
+				TimeoutMs: 15,
+			},
+		},
+		Aliases: map[string]aliasCfg{
+			"x": {
+				Ips: []string{"2.2.2.2"},
+				Ttl: 10,
+			},
+			"*": {
+				Ips: []string{"2.2.2.2"},
+				Ttl: 20,
+			},
+		},
+	})
+
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "x.one.one.one", []string{"2.2.2.2"}, 10, false, "t1")
+	testQuestion(t, rcu, []uint16{dns.TypeA}, "one.one.one.one", []string{"2.2.2.2"}, 20, false, "t2")
+}
+
+func TestRecursor_should_shuffle_ips(t *testing.T) {
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
 		Aliases: map[string]aliasCfg{
 			"shuffle": {
 				Ips:        []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"},
@@ -125,9 +173,8 @@ func TestRecursor_should_shuffle_ips(t *testing.T) {
 }
 
 func TestRecursor_should_shuffle_host_ips(t *testing.T) {
-	rcu, _ := createRecursor(recursorCfg{
+	rcu, _ := createRecursor("svc", recursorCfg{
 		Verbose: verbose,
-		Zone:    "svc",
 		Aliases: map[string]aliasCfg{
 			"shuffle": {
 				Hosts:      []string{"one.one.one.one"},

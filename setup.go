@@ -6,7 +6,9 @@ import (
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
+	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
+	"math/rand"
 	"net"
 	"net/url"
 	"strconv"
@@ -24,46 +26,47 @@ func setup(c *caddy.Controller) error {
 	if err != nil {
 		return plugin.Error(pluginName, fmt.Errorf("%s/%s read config error: %w", pluginName, pluginVersion, err))
 	}
-	rcu, err := createRecursor(rcuCfg)
+	rcu, err := createRecursor(cfg.Zone, rcuCfg)
 	if err != nil {
 		return plugin.Error(pluginName, fmt.Errorf("%s/%s create recursor error: %w", pluginName, pluginVersion, err))
 	}
-	updateInfoMetrics(cfg.Port, rcu)
+	updateInfoMetrics(cfg.Zone, cfg.Port, rcu)
 	if rcu.verbose > 1 {
-		log.Infof("Plugin %s/%s created (zone '%s'): %s", pluginName, pluginVersion, rcu.zone, rcu.String())
+		log.Infof("Plugin %s/%s created (zone '%s', port %s): %s", pluginName, pluginVersion, cfg.Zone, cfg.Port, rcu.String())
 	}
 	cfg.AddPlugin(func(next plugin.Handler) plugin.Handler {
 		rcu.Next = next
 		if rcu.verbose > 0 {
-			log.Infof("Plugin %s/%s added (zone '%s')", pluginName, pluginVersion, rcu.zone)
+			log.Infof("Plugin %s/%s added (zone '%s', port %s)", pluginName, pluginVersion, cfg.Zone, cfg.Port)
 		}
 		return rcu
 	})
 	return nil
 }
 
-func updateInfoMetrics(port string, rcu recursor) {
+func updateInfoMetrics(zone, port string, rcu recursor) {
 	promBuildInfo.With(prometheus.Labels{"version": pluginVersion}).Set(0)
 	for name, def := range rcu.resolvers {
-		promResolvesInfo.With(prometheus.Labels{"port": port, "zone": rcu.zone, "resolver": name, "urls": strings.Join(def.urls, ",")}).Set(1)
+		promResolvesInfo.With(prometheus.Labels{"zone": zone, "port": port, "resolver": name, "urls": strings.Join(def.urls, ",")}).Set(1)
 	}
 	for name, def := range rcu.aliases {
-		promAliasesInfo.With(prometheus.Labels{"port": port, "zone": rcu.zone, "alias": name, "resolver": def.resolverDefRef.name, "ttl": strconv.Itoa(int(def.ttl))}).Set(1)
+		promAliasesInfo.With(prometheus.Labels{"zone": zone, "port": port, "alias": name, "resolver": def.resolverDefRef.name, "ttl": strconv.Itoa(int(def.ttl))}).Set(1)
 		for _, host := range def.hosts {
-			promAliasesEntriesInfo.With(prometheus.Labels{"port": port, "zone": rcu.zone, "alias": name, "resolver": def.resolverDefRef.name, "type": "host", "entry": host}).Set(1)
+			promAliasesEntriesInfo.With(prometheus.Labels{"zone": zone, "port": port, "alias": name, "resolver": def.resolverDefRef.name, "type": "host", "entry": host}).Set(1)
 		}
 		for _, ip := range def.ips {
-			promAliasesEntriesInfo.With(prometheus.Labels{"port": port, "zone": rcu.zone, "alias": name, "resolver": def.resolverDefRef.name, "type": "ip", "entry": ip.String()}).Set(1)
+			promAliasesEntriesInfo.With(prometheus.Labels{"zone": zone, "port": port, "alias": name, "resolver": def.resolverDefRef.name, "type": "ip", "entry": ip.String()}).Set(1)
 		}
 	}
 }
 
-func createRecursor(cfg recursorCfg) (recursor, error) {
+func createRecursor(configZone string, cfg recursorCfg) (recursor, error) {
 	r := recursor{
-		verbose:   cfg.Verbose,
-		zone:      cfg.Zone,
-		resolvers: map[string]resolverDef{},
-		aliases:   map[string]aliasDef{},
+		random:     rand.New(rand.NewSource(time.Now().UnixNano())),
+		configZone: dns.CanonicalName(configZone),
+		verbose:    cfg.Verbose,
+		resolvers:  map[string]resolverDef{},
+		aliases:    map[string]aliasDef{},
 	}
 	r.resolvers[defaultResolverName] = resolverDef{
 		name:         defaultResolverName,

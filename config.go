@@ -11,14 +11,13 @@ import (
 )
 
 type recursorCfg struct {
-	Zone      string                 `json:"zone" yaml:"zone"`
 	Verbose   int                    `json:"verbose" yaml:"verbose"`
 	Resolvers map[string]resolverCfg `json:"resolvers" yaml:"resolvers"`
 	Aliases   map[string]aliasCfg    `json:"aliases" yaml:"aliases"`
 }
 
 func (rcu recursorCfg) String() string {
-	return fmt.Sprintf("{verbose: %v, zone: %s, resolvers: {%v}, aliases: {%v}}", rcu.Verbose, rcu.Zone, rcu.Resolvers, rcu.Resolvers)
+	return fmt.Sprintf("{verbose: %v, resolvers: {%v}, aliases: {%v}}", rcu.Verbose, rcu.Resolvers, rcu.Resolvers)
 }
 
 type aliasCfg struct {
@@ -87,11 +86,6 @@ mainLoop:
 				return recursorCfg{}, fmt.Errorf("parsing verbose error, %w", err)
 			}
 			rcu.Verbose = v
-		case "zone":
-			rcu.Zone = strings.TrimSpace(args[0])
-			if len(rcu.Zone) <= 0 {
-				return recursorCfg{}, fmt.Errorf("zone can't be empty")
-			}
 		case "resolver":
 			name := args[0]
 			c.NextLine()

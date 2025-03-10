@@ -70,7 +70,6 @@ func checkRcu(t *testing.T, err error, rcu recursorCfg) {
 		t.Fatalf("expected no errors, but got: %v", err)
 	}
 	assert.Equal(t, 0, rcu.Verbose, "verbose")
-	assert.Equal(t, "example1.svc", rcu.Zone, "zone")
 
 	// resolvers
 	assert.Equal(t, 2, len(rcu.Resolvers), "resolvers len")

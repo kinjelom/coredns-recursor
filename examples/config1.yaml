@@ -1,5 +1,4 @@
 verbose: 0
-zone: example1.svc
 resolvers:
   resolver_primary:
     urls:

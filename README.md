@@ -9,7 +9,6 @@ The `recursor` resolves domains using defined IP addresses or resolving other ma
 ## Config Syntax / Examples
 
 The `recursor` configuration includes the following definitions:
-- `zone`: The DNS zone for the recursor.
 - `verbose`: The logging level for stdout:
   - `0`: minimal logging
   - `1`: moderate logging
@@ -34,7 +33,6 @@ recursor {
     [external-json config-file-path]
 
     [verbose 0..2]
-    zone: demo.svc
     resolver dns-c {
         urls udp://1.1.1.1:53 udp://1.0.0.1:53
         timeout_ms 500
@@ -76,7 +74,6 @@ recursor {
 #### External YAML
 
 ```yaml
-        zone: demo.svc
         resolvers:
           dns-c:
             urls: [ udp://1.1.1.1:53, udp://1.0.0.1:53 ]
@@ -111,7 +108,6 @@ recursor {
 
 ```json
 {
-  "zone": "demo.svc",
   "resolvers": {
     "dns-c": {
       "urls": [ "udp://1.1.1.1:53", "udp://1.0.0.1:53" ],

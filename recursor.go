@@ -16,7 +16,7 @@ import (
 )
 
 const pluginName = "recursor"
-const pluginVersion = "1.3.0"
+const pluginVersion = "1.3.1"
 const defaultResolverName = "default"
 
 var log = clog.NewWithPlugin(pluginName)

@@ -1,22 +1,26 @@
 package recursor
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"math/rand"
+	"net"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
-	"math/rand"
-	"net"
-	"strings"
-	"sync"
-	"time"
 )
 
 const pluginName = "recursor"
-const pluginVersion = "1.3.1"
+const pluginVersion = "1.4.0"
 const defaultResolverName = "default"
 
 var log = clog.NewWithPlugin(pluginName)
@@ -60,6 +64,7 @@ type aliasDef struct {
 	hosts          []string
 	ips            []net.IP
 	shuffleIps     bool
+	ipsTransform   []string
 	ttl            uint32
 	resolverDefRef *resolverDef
 }
@@ -120,7 +125,7 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 	hosts := aliasDef.hosts
 	// Resolve dynamic IPs for each host.
 	for _, host := range hosts {
-		// If host is "*", use the original query name.
+		// If the host is "*", use the original query name.
 		queryHost := host
 		if host == "*" {
 			queryHost = state.Name()
@@ -133,13 +138,26 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 		}
 		ips = ipsAppendUnique(ips, dynIps)
 	}
+
+	workIps := ips
+	if qA != qAAAA {
+		if qA {
+			workIps = filterIPv4(ips)
+		} else {
+			workIps = filterIPv6(ips)
+		}
+	}
+
 	// Shuffle IPs if configured.
 	if aliasDef.shuffleIps {
-		r.random.Shuffle(len(ips), func(i, j int) {
-			ips[i], ips[j] = ips[j], ips[i]
+		r.random.Shuffle(len(workIps), func(i, j int) {
+			workIps[i], workIps[j] = workIps[j], workIps[i]
 		})
 	}
-	dnsMsg := createDnsAnswer(query, port, zone, domain, alias, aliasDef.resolverDefRef.name, ips, qA, qAAAA, aliasDef.ttl)
+	if len(aliasDef.ipsTransform) > 0 {
+		workIps = r.transformIps(workIps, aliasDef.ipsTransform)
+	}
+	dnsMsg := createDnsAnswer(query, port, zone, domain, alias, aliasDef.resolverDefRef.name, workIps, qA, qAAAA, aliasDef.ttl)
 	if r.verbose > 1 {
 		log.Infof("Recursor answer:\n```\n%s```", dnsMsg.String())
 	}
@@ -150,6 +168,97 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 	}
 	promQueryServedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": aliasDef.resolverDefRef.name, "client_ip": clientIp}).Inc()
 	return dns.RcodeSuccess, nil
+}
+
+// transformIps applies transformations in order.
+// Unknown transformation names are ignored.
+func (r recursor) transformIps(ips []net.IP, transform []string) []net.IP {
+	// Work on a copy to avoid side effects if a caller reuses the slice
+	ips = append([]net.IP(nil), ips...)
+
+	for _, f := range transform {
+		switch {
+		case f == "shuffle":
+			if len(ips) > 1 {
+				r.random.Shuffle(len(ips), func(i, j int) { ips[i], ips[j] = ips[j], ips[i] })
+			}
+
+		case f == "sort_asc":
+			sort.Slice(ips, func(i, j int) bool { return bytes.Compare(ips[i], ips[j]) < 0 })
+
+		case f == "sort_desc":
+			sort.Slice(ips, func(i, j int) bool { return bytes.Compare(ips[i], ips[j]) > 0 })
+
+		case f == "first":
+			if len(ips) > 1 {
+				ips = ips[:1]
+			}
+
+		case f == "last":
+			if n := len(ips); n > 1 {
+				ips = ips[n-1:]
+			}
+
+		case f == "random_one":
+			if n := len(ips); n > 1 {
+				idx := r.random.Intn(n)
+				ips = ips[idx : idx+1]
+			}
+
+		case f == "prefer_ipv4":
+			if len(ips) > 1 {
+				ipv4, ipv6 := stablePartitionByFamily(ips)
+				ips = append(ipv4, ipv6...)
+			}
+
+		case f == "prefer_ipv6":
+			if len(ips) > 1 {
+				ipv4, ipv6 := stablePartitionByFamily(ips)
+				ips = append(ipv6, ipv4...)
+			}
+
+		case strings.HasPrefix(f, "limit_"):
+			if n, err := strconv.Atoi(strings.TrimPrefix(f, "limit_")); err == nil {
+				if n <= 0 {
+					ips = ips[:0]
+				} else if len(ips) > n {
+					ips = ips[:n]
+				}
+			}
+		}
+	}
+	return ips
+}
+
+func stablePartitionByFamily(ips []net.IP) (ipv4 []net.IP, ipv6 []net.IP) {
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			ipv4 = append(ipv4, ip)
+		} else {
+			ipv6 = append(ipv6, ip)
+		}
+	}
+	return
+}
+
+func filterIPv4(ips []net.IP) []net.IP {
+	out := make([]net.IP, 0, len(ips))
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			out = append(out, ip)
+		}
+	}
+	return out
+}
+
+func filterIPv6(ips []net.IP) []net.IP {
+	out := make([]net.IP, 0, len(ips))
+	for _, ip := range ips {
+		if ip.To4() == nil {
+			out = append(out, ip)
+		}
+	}
+	return out
 }
 
 // findAlias returns the alias definition and flags indicating if found and if it is a wildcard alias.
@@ -203,7 +312,7 @@ func multiResolve(ctx context.Context, resolverDefRef *resolverDef, port, zone, 
 			return res.ips, nil
 		} else {
 			lastErr = fmt.Errorf("resolver '%s' error: %w", res.resolverURL, res.err)
-			log.Warningf(lastErr.Error())
+			log.Warning(lastErr.Error())
 		}
 	}
 	return nil, lastErr

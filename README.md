@@ -1,6 +1,6 @@
-# `recursor` - CoreDNS Plugin  
+# `recursor` - CoreDNS Plugin
 
-The `recursor` resolves domains using defined IP addresses or resolving other mapped domains using defined resolvers. 
+The `recursor` resolves domains using defined IP addresses or resolving other mapped domains using defined resolvers.
 
 ## Use Case
 
@@ -9,21 +9,35 @@ The `recursor` resolves domains using defined IP addresses or resolving other ma
 ## Config Syntax / Examples
 
 The `recursor` configuration includes the following definitions:
+
 - `verbose`: The logging level for stdout:
-  - `0`: minimal logging
-  - `1`: moderate logging
-  - `2`: detailed logging
+    - `0`: minimal logging
+    - `1`: moderate logging
+    - `2`: detailed logging
 - `resolvers`: Other DNS servers to use:
-  - *map-key/id*: The name of the resolver. The `default` overrides the system's default resolver.
-  - `urls`: A list of URL addresses, e.g., `udp://127.0.0.1:53` (the system default is represented by `://default`).
-  - `timeout_ms`: The connection timeout for the resolver, in milliseconds.
+    - *map-key/id*: The name of the resolver. The `default` overrides the system's default resolver.
+    - `urls`: A list of URL addresses, e.g., `udp://127.0.0.1:53` (the system default is represented by `://default`).
+    - `timeout_ms`: The connection timeout for the resolver, in milliseconds.
 - `aliases`: Domain aliases:
-  - *map-key/id*: The alias name, a subdomain, or `*` if you want the recursor to act as a DNS repeater.
-  - `ips`: A list of IP addresses to be returned as part of the response.
-  - `hosts`: Domains that will be resolved, with the resulting IP addresses returned in the response.
-  - `shuffle_ips`: Default is `false`. If set to `true`, IP addresses will be returned in random order.
-  - `resolver_name`: The name of the resolver to use. The default is... well, `default`, of course :)
-  - `ttl`: Time To Live for the DNS record, in seconds.
+    - *map-key/id*: The alias name, a subdomain, or `*` if you want the recursor to act as a DNS repeater.
+    - `ips`: A list of IP addresses to be returned as part of the response.
+    - `hosts`: Domains that will be resolved, with the resulting IP addresses returned in the response.
+    - `shuffle_ips`: Default is `false`. If set to `true`, IP addresses will be returned in random order. Deprecated,
+      use `ips_transform` instead.
+    - `ips_transform`: A list of transformations applied sequentially to the list of IP addresses before returning them.
+    Default: empty (no transformation). Unknown functions are ignored. Supported functions (applied in order):
+      - `shuffle`: randomizes the order of addresses
+      - `sort_asc`: sorts addresses in ascending binary order
+      - `sort_desc`: sorts addresses in descending binary order
+      - `first`: keeps only the first address (if any)
+      - `last`: keeps only the last address (if any)
+      - `random_one`: keeps exactly one random address (if any)
+      - `prefer_ipv4`: stable-partitions list to place IPv4 first
+      - `prefer_ipv6`: stable-partitions list to place IPv6 first
+      - `limit_n`: keeps only the first `n` addresses (e.g., limit_2). n≥0, n=0 yields an empty list.
+    - `ttl`: Time To Live for the DNS record, in seconds.
+    - `resolver_name`: The name of the resolver to use. The default is... well, `default`, of course :)
+    - `ttl`: Time To Live for the DNS record, in seconds.
 
 #### Corefile
 
@@ -45,7 +59,7 @@ recursor {
     }  
     alias alias1 {
         hosts www.example.org www.example.com
-        shuffle_ips true
+        ips_transform shuffle first
         resolver_name dns-c
         ttl 11
     }
@@ -85,7 +99,7 @@ recursor {
         aliases:
           alias1:
             hosts: [ www.example.org, www.example.com ]
-            shuffle_ips: true
+            ips_transform: [ shuffle first ]
             resolver_name: dns-c
             ttl: 11
           alias2:
@@ -110,35 +124,56 @@ recursor {
 {
   "resolvers": {
     "dns-c": {
-      "urls": [ "udp://1.1.1.1:53", "udp://1.0.0.1:53" ],
+      "urls": [
+        "udp://1.1.1.1:53",
+        "udp://1.0.0.1:53"
+      ],
       "timeout_ms": 500
     },
     "dns-g": {
-      "urls": [ "udp://8.8.8.8:53", "udp://8.8.4.4:53" ]
+      "urls": [
+        "udp://8.8.8.8:53",
+        "udp://8.8.4.4:53"
+      ]
     },
     "demo": {
-      "urls": [ "udp://10.0.0.1:53" ]
+      "urls": [
+        "udp://10.0.0.1:53"
+      ]
     }
   },
   "aliases": {
     "alias1": {
-      "hosts": [ "www.example.org", "www.example.com" ],
-      "shuffle_ips": true,
+      "hosts": [
+        "www.example.org",
+        "www.example.com"
+      ],
+      "ips_transform": [ "shuffle", "first"  ],
       "resolver_name": "dns-c",
       "ttl": 11
     },
     "alias2": {
-      "ips": [ "10.0.0.1", "10.0.0.2" ],
+      "ips": [
+        "10.0.0.1",
+        "10.0.0.2"
+      ],
       "ttl": 12
     },
     "alias3": {
-      "ips": [ "10.0.0.1", "10.0.0.2" ],
-      "hosts": [ "www.example.net" ],
+      "ips": [
+        "10.0.0.1",
+        "10.0.0.2"
+      ],
+      "hosts": [
+        "www.example.net"
+      ],
       "resolver_name": "dns-g",
       "ttl": 13
     },
     "alias4": {
-      "hosts": [ "www.example.net" ],
+      "hosts": [
+        "www.example.net"
+      ],
       "ttl": 14
     },
     "*": {
@@ -157,7 +192,6 @@ recursor {
 - [Grafana Dashboard](docs/dashboard.json)
 
 ![](docs/dashboard.png)
-
 
 ## Run It
 
@@ -186,6 +220,7 @@ popd
 ## Try it
 
 Helpful commands:
+
 ```bash
 # sudo apt-get install dnsutils
 dig alias1.demo.svc @127.0.0.1 -p 1053

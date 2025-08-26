@@ -1,10 +1,11 @@
 package recursor
 
 import (
-	"github.com/coredns/caddy"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
+
+	"github.com/coredns/caddy"
+	"github.com/stretchr/testify/assert"
 )
 
 // Tests the various configs that should be parsed
@@ -93,7 +94,7 @@ func checkRcu(t *testing.T, err error, rcu recursorCfg) {
 	assert.Equal(t, 2, len(a.Hosts), "alias1 hosts len")
 	assert.Equal(t, "www.example.org", a.Hosts[0], "alias1 hosts[0]")
 	assert.Equal(t, "www.example.com", a.Hosts[1], "alias1 hosts[1]")
-	assert.True(t, a.ShuffleIps, "alias1 ips shuffle is on")
+	assert.Equal(t, []string{"shuffle", "first"}, a.IpsTransform, "alias1 has shuffle,first transform")
 	assert.Equal(t, uint32(5), a.Ttl, "alias1 ttl")
 	assert.Equal(t, "resolver_primary", a.ResolverName, "alias1 resolverName")
 
@@ -102,7 +103,7 @@ func checkRcu(t *testing.T, err error, rcu recursorCfg) {
 	assert.Equal(t, "10.1.1.1", a.Ips[0], "alias2 ips[0]")
 	assert.Equal(t, "10.1.1.2", a.Ips[1], "alias2 ips[1]")
 	assert.Equal(t, 0, len(a.Hosts), "alias2 hosts len")
-	assert.False(t, a.ShuffleIps, "alias2 ips shuffle default false")
+	assert.Empty(t, a.IpsTransform, "alias2 without ips transform")
 	assert.Equal(t, uint32(0), a.Ttl, "alias2 ttl")
 	assert.Equal(t, "default", a.ResolverName, "alias2 resolverName")
 
@@ -111,7 +112,7 @@ func checkRcu(t *testing.T, err error, rcu recursorCfg) {
 	assert.Equal(t, 2, len(a.Hosts), "alias3 hosts len")
 	assert.Equal(t, "www.example.org", a.Hosts[0], "alias3 hosts[0]")
 	assert.Equal(t, "www.example.com", a.Hosts[1], "alias3 hosts[1]")
-	assert.False(t, a.ShuffleIps, "alias3 ips shuffle default false")
+	assert.Empty(t, []string{}, "alias3 without ips transform")
 	assert.Equal(t, uint32(15), a.Ttl, "alias3 ttl")
 	assert.Equal(t, "resolver_secondary", a.ResolverName, "alias3 resolverName")
 

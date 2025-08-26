@@ -3,11 +3,12 @@ package recursor
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/coredns/caddy"
-	"gopkg.in/yaml.v3"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/coredns/caddy"
+	"gopkg.in/yaml.v3"
 )
 
 type recursorCfg struct {
@@ -24,6 +25,7 @@ type aliasCfg struct {
 	Hosts        []string `json:"hosts" yaml:"hosts"`
 	Ips          []string `json:"ips" yaml:"ips"`
 	ShuffleIps   bool     `json:"shuffle_ips" yaml:"shuffle_ips"`
+	IpsTransform []string `json:"ips_transform" yaml:"ips_transform"`
 	Ttl          uint32   `json:"ttl" yaml:"ttl"`
 	ResolverName string   `json:"resolver_name" yaml:"resolver_name"`
 }
@@ -175,6 +177,11 @@ func readAliasCfg(c *caddy.Controller) (aliasCfg, error) {
 				return cfg, fmt.Errorf("wrong 'shuffle_ips' definition")
 			}
 			cfg.ShuffleIps = args[0] == "true"
+		case "ips_transform":
+			if len(args) < 1 {
+				return cfg, fmt.Errorf("empty `ips_transform` list")
+			}
+			cfg.IpsTransform = args
 		case "resolver_name":
 			if len(args) != 1 {
 				return cfg, fmt.Errorf("wrong 'resolver_name' definition")

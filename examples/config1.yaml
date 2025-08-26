@@ -16,7 +16,7 @@ aliases:
     hosts:
       - www.example.org
       - www.example.com
-    shuffle_ips: true
+    ips_transform: [ shuffle, first ]
     ttl: 5
     resolver_name: resolver_primary
   alias2:

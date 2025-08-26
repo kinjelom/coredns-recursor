@@ -2,11 +2,13 @@ package recursor
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
 	"github.com/coredns/coredns/plugin/test"
@@ -193,12 +195,224 @@ func TestRecursor_should_shuffle_host_ips(t *testing.T) {
 	assert.NotEqual(t, ips1, ips2, "Host IP Addresses have to be in different order in different queries")
 }
 
-func getIpsOrder(t *testing.T, rr recursor, question string) []string {
-	rec, _, err := askQuestion(question, []uint16{dns.TypeA}, rr)
-	assert.NoError(t, err)
+func TestRecursor_should_shuffle_ips_via_ips_transform(t *testing.T) {
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
+		Aliases: map[string]aliasCfg{
+			"shuffle": {
+				Ips:          []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"},
+				IpsTransform: []string{"shuffle"},
+			},
+		},
+	})
+
+	ips1 := getIpsOrder(t, rcu, "shuffle.svc")
+	ips2 := getIpsOrder(t, rcu, "shuffle.svc")
+
+	i := 0
+	for reflect.DeepEqual(ips1, ips2) && i < 5 {
+		ips2 = getIpsOrder(t, rcu, "shuffle.svc")
+		i++
+	}
+	assert.NotEqual(t, ips1, ips2, "IP Addresses have to be in different order in different queries")
+}
+
+func TestRecursor_should_shuffle_host_ips_via_ips_transform(t *testing.T) {
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
+		Aliases: map[string]aliasCfg{
+			"shuffle": {
+				Hosts:        []string{"one.one.one.one"},
+				IpsTransform: []string{"shuffle"},
+			},
+		},
+	})
+
+	ips1 := getIpsOrder(t, rcu, "shuffle.svc")
+	ips2 := getIpsOrder(t, rcu, "shuffle.svc")
+
+	i := 0
+	for reflect.DeepEqual(ips1, ips2) && i < 5 {
+		ips2 = getIpsOrder(t, rcu, "shuffle.svc")
+		i++
+	}
+	assert.NotEqual(t, ips1, ips2, "Host IP Addresses have to be in different order in different queries")
+}
+
+func TestRecursor_should_sort_asc_and_desc(t *testing.T) {
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
+		Aliases: map[string]aliasCfg{
+			"asc": {
+				Ips:          []string{"10.0.0.3", "10.0.0.1", "10.0.0.2"},
+				IpsTransform: []string{"sort_asc"},
+			},
+			"desc": {
+				Ips:          []string{"10.0.0.3", "10.0.0.1", "10.0.0.2"},
+				IpsTransform: []string{"sort_desc"},
+			},
+		},
+	})
+
+	gotAsc := getIpsOrder(t, rcu, "asc.svc")
+	assert.Equal(t, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}, gotAsc)
+
+	gotDesc := getIpsOrder(t, rcu, "desc.svc")
+	assert.Equal(t, []string{"10.0.0.3", "10.0.0.2", "10.0.0.1"}, gotDesc)
+}
+
+func TestRecursor_should_keep_first_and_last(t *testing.T) {
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
+		Aliases: map[string]aliasCfg{
+			"first": {
+				Ips:          []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"},
+				IpsTransform: []string{"first"},
+			},
+			"last": {
+				Ips:          []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"},
+				IpsTransform: []string{"last"},
+			},
+		},
+	})
+
+	gotFirst := getIpsOrder(t, rcu, "first.svc")
+	assert.Equal(t, []string{"10.0.0.1"}, gotFirst)
+
+	gotLast := getIpsOrder(t, rcu, "last.svc")
+	assert.Equal(t, []string{"10.0.0.3"}, gotLast)
+}
+
+func TestRecursor_should_pick_random_one(t *testing.T) {
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
+		Aliases: map[string]aliasCfg{
+			"rnd": {
+				Ips:          []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4"},
+				IpsTransform: []string{"random_one"},
+			},
+		},
+	})
+
+	got1 := getIpsOrder(t, rcu, "rnd.svc")
+	got2 := getIpsOrder(t, rcu, "rnd.svc")
+
+	// Always exactly one
+	assert.Len(t, got1, 1)
+	assert.Len(t, got2, 1)
+
+	// With a few retries, expect different picks eventually
+	i := 0
+	for reflect.DeepEqual(got1, got2) && i < 10 {
+		got2 = getIpsOrder(t, rcu, "rnd.svc")
+		i++
+	}
+	assert.NotEqual(t, got1, got2, "random_one should eventually pick a different address")
+}
+
+func TestRecursor_should_prefer_ipv4_over_ipv6_and_vice_versa(t *testing.T) {
+	// Example mix of v4 and v6 (string forms; your resolver should emit in a consistent, canonical slice order)
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
+		Aliases: map[string]aliasCfg{
+			"ipv4_first": {
+				Ips:          []string{"2001:db8::1", "10.0.0.2", "2001:db8::2", "10.0.0.1"},
+				IpsTransform: []string{"prefer_ipv4"},
+			},
+			"ipv6_first": {
+				Ips:          []string{"10.0.0.2", "2001:db8::1", "10.0.0.1", "2001:db8::2"},
+				IpsTransform: []string{"prefer_ipv6"},
+			},
+		},
+	})
+
+	gotV4 := getIpsOrder(t, rcu, "ipv4_first.svc", dns.TypeA, dns.TypeAAAA)
+	// Expect all IPv4 first, preserving relative order within families
+	assert.Equal(t, []string{"10.0.0.2", "10.0.0.1", "2001:db8::1", "2001:db8::2"}, gotV4)
+
+	gotV6 := getIpsOrder(t, rcu, "ipv6_first.svc", dns.TypeA, dns.TypeAAAA)
+	assert.Equal(t, []string{"2001:db8::1", "2001:db8::2", "10.0.0.2", "10.0.0.1"}, gotV6)
+}
+
+func TestRecursor_should_limit_n(t *testing.T) {
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
+		Aliases: map[string]aliasCfg{
+			"limit2": {
+				Ips:          []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"},
+				IpsTransform: []string{"limit_2"},
+			},
+			"limit0": {
+				Ips:          []string{"10.0.0.1", "10.0.0.2"},
+				IpsTransform: []string{"limit_0"},
+			},
+		},
+	})
+
+	got2 := getIpsOrder(t, rcu, "limit2.svc")
+	assert.Equal(t, []string{"10.0.0.1", "10.0.0.2"}, got2)
+
+	got0 := getIpsOrder(t, rcu, "limit0.svc")
+	assert.Empty(t, got0)
+}
+
+func TestRecursor_should_apply_transformations_in_order(t *testing.T) {
+	// Example: shuffle then first -> should pick a random single address, not always the same first.
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
+		Aliases: map[string]aliasCfg{
+			"pipeline": {
+				Ips:          []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4"},
+				IpsTransform: []string{"shuffle", "first"},
+			},
+		},
+	})
+
+	got1 := getIpsOrder(t, rcu, "pipeline.svc")
+	got2 := getIpsOrder(t, rcu, "pipeline.svc")
+
+	assert.Len(t, got1, 1)
+	assert.Len(t, got2, 1)
+
+	i := 0
+	for reflect.DeepEqual(got1, got2) && i < 10 {
+		got2 = getIpsOrder(t, rcu, "pipeline.svc")
+		i++
+	}
+	assert.NotEqual(t, got1, got2, "shuffle→first should eventually yield different single addresses")
+}
+
+func TestRecursor_should_ignore_unknown_transform_tokens(t *testing.T) {
+	rcu, _ := createRecursor("svc", recursorCfg{
+		Verbose: verbose,
+		Aliases: map[string]aliasCfg{
+			"unknown": {
+				Ips:          []string{"10.0.0.3", "10.0.0.1", "10.0.0.2"},
+				IpsTransform: []string{"__does_not_exist__", "sort_asc"},
+			},
+		},
+	})
+
+	got := getIpsOrder(t, rcu, "unknown.svc")
+	assert.Equal(t, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}, got)
+}
+
+func getIpsOrder(t *testing.T, rr recursor, question string, qTypes ...uint16) []string {
+	t.Helper()
+	if len(qTypes) == 0 {
+		qTypes = []uint16{dns.TypeA, dns.TypeAAAA}
+	}
+	rec, _, err := askQuestion(question, qTypes, rr)
+	require.NoError(t, err)
+
 	var ips []string
-	for _, answer := range rec.Msg.Answer {
-		ips = append(ips, strings.Split(answer.String(), "\t")[4])
+	for _, ans := range rec.Msg.Answer {
+		switch a := ans.(type) {
+		case *dns.A:
+			ips = append(ips, a.A.String())
+		case *dns.AAAA:
+			ips = append(ips, a.AAAA.String())
+		}
 	}
 	return ips
 }

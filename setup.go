@@ -3,17 +3,18 @@ package recursor
 import (
 	"context"
 	"fmt"
-	"github.com/coredns/caddy"
-	"github.com/coredns/coredns/core/dnsserver"
-	"github.com/coredns/coredns/plugin"
-	"github.com/miekg/dns"
-	"github.com/prometheus/client_golang/prometheus"
 	"math/rand"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/coredns/caddy"
+	"github.com/coredns/coredns/core/dnsserver"
+	"github.com/coredns/coredns/plugin"
+	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // init registers this plugin.
@@ -123,10 +124,11 @@ func createResolver(name string, p resolverCfg) (resolverDef, error) {
 
 func createAlias(aName string, aCfg aliasCfg, resolvers map[string]resolverDef) (aliasDef, error) {
 	a := aliasDef{
-		ips:        []net.IP{},
-		hosts:      aCfg.Hosts,
-		shuffleIps: aCfg.ShuffleIps,
-		ttl:        aCfg.Ttl,
+		ips:          []net.IP{},
+		hosts:        aCfg.Hosts,
+		shuffleIps:   aCfg.ShuffleIps,
+		ipsTransform: aCfg.IpsTransform,
+		ttl:          aCfg.Ttl,
 	}
 	var ips []net.IP
 	for _, ip := range aCfg.Ips {

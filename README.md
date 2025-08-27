@@ -35,7 +35,6 @@ The `recursor` configuration includes the following definitions:
       - `prefer_ipv4`: stable-partitions list to place IPv4 first
       - `prefer_ipv6`: stable-partitions list to place IPv6 first
       - `limit_n`: keeps only the first `n` addresses (e.g., limit_2). n≥0, n=0 yields an empty list.
-    - `ttl`: Time To Live for the DNS record, in seconds.
     - `resolver_name`: The name of the resolver to use. The default is... well, `default`, of course :)
     - `ttl`: Time To Live for the DNS record, in seconds.
 

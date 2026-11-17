@@ -313,6 +313,106 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "id": 20,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "frameIndex": 0,
+        "showHeader": true
+      },
+      "pluginVersion": "12.0.1",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(coredns_recursor_aliases_services_info{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}) by (zone, alias, service, protocol, service_port, resolver)",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "Services",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "Time": 0,
+              "zone": 1,
+              "alias": 2,
+              "service": 3,
+              "protocol": 4,
+              "service_port": 5,
+              "resolver": 6,
+              "Value": 7
+            },
+            "renameByName": {
+              "service_port": "port"
+            }
+          }
+        }
+      ],
+      "type": "table",
+      "description": "Services published by aliases as SRV records: _<service>._<protocol>.<alias>.<zone>"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "",
       "fieldConfig": {
         "defaults": {
@@ -412,7 +512,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 13
       },
       "id": 1,
       "options": {
@@ -441,7 +541,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (zone, resolver, alias)(rate(coredns_recursor_query_served_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[$__interval]))",
+          "expr": "sum by (zone, resolver, alias)(rate(coredns_recursor_query_served_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[$__rate_interval]))",
           "format": "time_series",
           "hide": false,
           "intervalFactor": 2,
@@ -550,30 +650,6 @@
                 }
               }
             ]
-          },
-          {
-            "__systemRef": "hideSeriesFrom",
-            "matcher": {
-              "id": "byNames",
-              "options": {
-                "mode": "exclude",
-                "names": [
-                  "\\ rmq-dev.dev.cloud-svc.i6e.in. - 10.100.25.98 - alias-not-found"
-                ],
-                "prefix": "All except:",
-                "readOnly": true
-              }
-            },
-            "properties": [
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": true
-                }
-              }
-            ]
           }
         ]
       },
@@ -581,7 +657,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 13
       },
       "id": 10,
       "options": {
@@ -611,7 +687,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum by (zone, resolver, alias, client_ip, reason)(rate(coredns_recursor_query_omitted_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[$__interval]))",
+          "expr": "sum by (zone, resolver, alias, client_ip, reason)(rate(coredns_recursor_query_omitted_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[$__rate_interval]))",
           "format": "time_series",
           "hide": false,
           "instant": false,
@@ -712,7 +788,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 13
+        "y": 20
       },
       "id": 3,
       "options": {
@@ -741,7 +817,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (zone, alias, resolver, host, result)(rate(coredns_recursor_resolve_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", result=\"success\", alias=~\"$alias\"}[$__interval]))",
+          "expr": "sum by (zone, alias, resolver, host, result)(rate(coredns_recursor_resolve_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", result=\"success\", alias=~\"$alias\"}[$__rate_interval]))",
           "intervalFactor": 2,
           "legendFormat": "{{alias}}.{{zone}} / {{host}} / {{result}}",
           "range": true,
@@ -818,7 +894,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 13
+        "y": 20
       },
       "id": 11,
       "options": {
@@ -964,7 +1040,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 21
+        "y": 28
       },
       "id": 14,
       "options": {
@@ -993,7 +1069,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by(zone, alias, ip)(rate(coredns_recursor_resolve_ip_count_total{bosh_deployment=\"$deployment\",instance=~\"$instance\",port=~\"$port\",zone=~\"$zone\",alias=~\"$alias\"}[$__interval]))",
+          "expr": "sum by(zone, alias, ip)(rate(coredns_recursor_resolve_ip_count_total{bosh_deployment=\"$deployment\",instance=~\"$instance\",port=~\"$port\",zone=~\"$zone\",alias=~\"$alias\"}[$__rate_interval]))",
           "intervalFactor": 2,
           "legendFormat": "{{alias}}.{{zone}} / {{ip}}",
           "range": true,
@@ -1128,7 +1204,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 21
+        "y": 28
       },
       "id": 15,
       "options": {
@@ -1157,7 +1233,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (client_ip)(rate(coredns_recursor_query_served_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[$__interval])) ",
+          "expr": "sum by (client_ip)(rate(coredns_recursor_query_served_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[$__rate_interval])) ",
           "format": "time_series",
           "hide": false,
           "intervalFactor": 2,
@@ -1294,7 +1370,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 21
+        "y": 28
       },
       "id": 19,
       "options": {
@@ -1323,7 +1399,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (zone, alias, client_ip)(rate(coredns_recursor_query_served_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[$__interval]))",
+          "expr": "sum by (zone, alias, client_ip)(rate(coredns_recursor_query_served_count_total{bosh_deployment=\"$deployment\", instance=~\"$instance\", port=~\"$port\", zone=~\"$zone\", resolver=~\"$resolver\", alias=~\"$alias\"}[$__rate_interval]))",
           "format": "time_series",
           "hide": false,
           "intervalFactor": 2,
@@ -1348,10 +1424,7 @@
     "list": [
       {
         "allValue": ".*",
-        "current": {
-          "text": "coredns-svc-dev",
-          "value": "coredns-svc-dev"
-        },
+        "current": {},
         "datasource": "prometheus",
         "definition": "label_values(coredns_build_info,bosh_deployment)",
         "includeAll": false,

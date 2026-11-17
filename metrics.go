@@ -1,8 +1,6 @@
 package recursor
 
 import (
-	"sync"
-
 	"github.com/coredns/coredns/plugin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -18,7 +16,7 @@ var promResolvesInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Namespace: plugin.Namespace,
 	Subsystem: pluginName,
 	Name:      "resolvers_info",
-	Help:      "Resolves info",
+	Help:      "Resolvers info",
 }, []string{"port", "zone", "resolver", "urls"})
 var promAliasesInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Namespace: plugin.Namespace,
@@ -32,6 +30,13 @@ var promAliasesEntriesInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Name:      "aliases_entries_info",
 	Help:      "Aliases entries info",
 }, []string{"port", "zone", "alias", "resolver", "type", "entry"})
+
+var promAliasesServicesInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Namespace: plugin.Namespace,
+	Subsystem: pluginName,
+	Name:      "aliases_services_info",
+	Help:      "Services published by aliases as SRV records",
+}, []string{"port", "zone", "alias", "resolver", "service", "protocol", "service_port"})
 
 var promQueryServedCountTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Namespace: plugin.Namespace,
@@ -71,7 +76,5 @@ var promResolveIpCountTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Namespace: plugin.Namespace,
 	Subsystem: pluginName,
 	Name:      "resolve_ip_count_total",
-	Help:      "Total count of answers",
+	Help:      "Total count of addresses returned in answers",
 }, []string{"port", "zone", "alias", "resolver", "ip"})
-
-var _ sync.Once

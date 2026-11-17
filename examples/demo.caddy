@@ -1,0 +1,43 @@
+recursor {
+    verbose 0
+
+    resolver dns-c {
+        urls udp://1.1.1.1:53 udp://1.0.0.1:53
+        timeout_ms 500
+    }
+    resolver dns-g {
+        urls udp://8.8.8.8:53 udp://8.8.4.4:53
+        timeout_ms 500
+    }
+    resolver demo {
+        urls udp://10.0.0.1:53
+        timeout_ms 500
+    }
+
+    alias alias1 {
+        hosts www.example.org www.example.com
+        ips_transform shuffle first
+        resolver_name dns-c
+        ttl 11
+        services https:443 dns:53/udp dns:53/tcp
+    }
+    alias alias2 {
+        ips 10.0.0.1 10.0.0.2
+        ttl 12
+        services ssh:22 postgresql:5432
+    }
+    alias alias3 {
+        ips 10.0.0.1 10.0.0.2
+        hosts www.example.net
+        resolver_name dns-g
+        ttl 13
+    }
+    alias alias4 {
+        hosts www.example.net
+        ttl 14
+    }
+    alias * {
+        resolver_name demo
+        ttl 15
+    }
+}

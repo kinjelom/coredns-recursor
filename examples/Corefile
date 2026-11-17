@@ -1,0 +1,7 @@
+# Runnable demo: coredns -conf examples/Corefile
+# Zone demo.svc on port 1053, metrics on :9153 (see README "Try It").
+demo.svc:1053 {
+    errors
+    prometheus 0.0.0.0:9153
+    import demo.caddy
+}

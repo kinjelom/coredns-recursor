@@ -3,7 +3,7 @@ recursor {
 
     resolver default {
         urls udp://10.0.0.1:53
-        timeout_ms 10
+        timeout_ms 500
     }
 
     alias alias1 {

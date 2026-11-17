@@ -55,7 +55,7 @@ func TestRecursor_should_work_with_custom_resolver(t *testing.T) {
 		Resolvers: map[string]resolverCfg{
 			"my_resolver": {
 				Urls:      []string{"udp://8.8.8.8:53"},
-				TimeoutMs: 15,
+				TimeoutMs: 2000,
 			},
 		},
 		Aliases: map[string]aliasCfg{
@@ -80,7 +80,7 @@ func TestRecursor_should_work_as_repeater(t *testing.T) {
 		Resolvers: map[string]resolverCfg{
 			"default": {
 				Urls:      []string{"udp://8.8.8.8:53"},
-				TimeoutMs: 15,
+				TimeoutMs: 2000,
 			},
 		},
 		Aliases: map[string]aliasCfg{
@@ -106,7 +106,7 @@ func TestRecursor_should_work_as_repeater_and_ips(t *testing.T) {
 		Resolvers: map[string]resolverCfg{
 			"default": {
 				Urls:      []string{"udp://8.8.8.8:53"},
-				TimeoutMs: 15,
+				TimeoutMs: 2000,
 			},
 		},
 		Aliases: map[string]aliasCfg{
@@ -134,7 +134,7 @@ func TestRecursor_should_not_work_as_repeater_with_ips(t *testing.T) {
 		Resolvers: map[string]resolverCfg{
 			"default": {
 				Urls:      []string{"udp://8.8.8.8:53"},
-				TimeoutMs: 15,
+				TimeoutMs: 2000,
 			},
 		},
 		Aliases: map[string]aliasCfg{
@@ -382,19 +382,19 @@ func TestRecursor_should_apply_transformations_in_order(t *testing.T) {
 	assert.NotEqual(t, got1, got2, "shuffle→first should eventually yield different single addresses")
 }
 
-func TestRecursor_should_ignore_unknown_transform_tokens(t *testing.T) {
-	rcu, _ := createRecursor("svc", recursorCfg{
-		Verbose: verbose,
-		Aliases: map[string]aliasCfg{
-			"unknown": {
-				Ips:          []string{"10.0.0.3", "10.0.0.1", "10.0.0.2"},
-				IpsTransform: []string{"__does_not_exist__", "sort_asc"},
+func TestRecursor_should_reject_unknown_transform_tokens(t *testing.T) {
+	for _, fn := range []string{"__does_not_exist__", "shufle", "SORT_ASC", "limit_", "limit_x", "limit_-1"} {
+		_, err := createRecursor("svc", recursorCfg{
+			Verbose: verbose,
+			Aliases: map[string]aliasCfg{
+				"unknown": {
+					Ips:          []string{"10.0.0.3", "10.0.0.1", "10.0.0.2"},
+					IpsTransform: []string{fn, "sort_asc"},
+				},
 			},
-		},
-	})
-
-	got := getIpsOrder(t, rcu, "unknown.svc")
-	assert.Equal(t, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}, got)
+		})
+		assert.ErrorContains(t, err, "unknown ips_transform function", fn)
+	}
 }
 
 func getIpsOrder(t *testing.T, rr recursor, question string, qTypes ...uint16) []string {
@@ -420,11 +420,10 @@ func getIpsOrder(t *testing.T, rr recursor, question string, qTypes ...uint16) [
 func testQuestion(t *testing.T, rr recursor, qTypes []uint16, question string, expectedIps []string, expectedTtl int, expectedError bool, description string) {
 	rec, code, err := askQuestion(question, qTypes, rr)
 	if err != nil {
-		if expectedError {
-			return
-		} else {
+		if !expectedError {
 			t.Errorf("(%s) unexpected error %v", description, err)
 		}
+		return // rec.Msg is nil when there's no answer
 	}
 	log.Debugf("code: %d, err: %v, answer: %s", code, err, rec.Msg.Answer)
 	response := ","

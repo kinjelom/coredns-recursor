@@ -1,0 +1,5 @@
+# Qodana configuration: https://www.jetbrains.com/help/qodana/qodana-yaml.html
+version: "1.0"
+profile:
+  name: qodana.starter
+linter: jetbrains/qodana-go:2026.3

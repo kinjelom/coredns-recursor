@@ -3,6 +3,7 @@ package recursor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -20,8 +21,15 @@ import (
 )
 
 const pluginName = "recursor"
-const pluginVersion = "1.4.0"
+const pluginVersion = "1.5.0"
 const defaultResolverName = "default"
+
+// defaultResolveTimeout bounds a lookup when the resolver has no timeout_ms,
+// so a silent upstream can't hold queries (and goroutines) for the Go resolver's ~40s.
+const defaultResolveTimeout = 2 * time.Second
+
+// maxTTL is the largest TTL allowed by RFC 2181 §8.
+const maxTTL = 2147483647
 
 var log = clog.NewWithPlugin(pluginName)
 
@@ -33,7 +41,11 @@ type recursor struct {
 	aliases    map[string]aliasDef
 	resolvers  map[string]resolverDef
 	verbose    int
-	Next       plugin.Handler
+	// clientIpMetrics adds the client's IP to the query metrics (one series per client).
+	clientIpMetrics bool
+	// soaSerial is the serial of the synthesized SOA record returned with empty answers.
+	soaSerial uint32
+	Next      plugin.Handler
 }
 
 // Name returns the plugin name.
@@ -53,6 +65,37 @@ type resolverDef struct {
 	name         string
 	resolverRefs []*net.Resolver
 	urls         []string
+	// timeout bounds a whole lookup (all retries) per upstream.
+	timeout time.Duration
+}
+
+// lockedSource makes a rand.Source safe for concurrent use: ServeDNS runs in parallel
+// and *rand.Rand is not goroutine-safe on its own. Shuffle/Intn only touch the source.
+type lockedSource struct {
+	mu  sync.Mutex
+	src rand.Source64
+}
+
+func newLockedRand(seed int64) *rand.Rand {
+	return rand.New(&lockedSource{src: rand.NewSource(seed).(rand.Source64)})
+}
+
+func (s *lockedSource) Int63() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.src.Int63()
+}
+
+func (s *lockedSource) Uint64() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.src.Uint64()
+}
+
+func (s *lockedSource) Seed(seed int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.src.Seed(seed)
 }
 
 func (rd resolverDef) String() string {
@@ -66,6 +109,7 @@ type aliasDef struct {
 	shuffleIps     bool
 	ipsTransform   []string
 	ttl            uint32
+	services       []serviceDef
 	resolverDefRef *resolverDef
 }
 
@@ -76,7 +120,12 @@ func (a aliasDef) String() string {
 		ipsStr += ip.String() + ","
 	}
 	ipsStr += "]"
-	return fmt.Sprintf("{hosts: %s, ips: %s, ttl: %v, resolver: %s}", hostsStr, ipsStr, a.ttl, a.resolverDefRef.urls)
+	servicesStr := "["
+	for _, s := range a.services {
+		servicesStr += s.String() + ","
+	}
+	servicesStr += "]"
+	return fmt.Sprintf("{hosts: %s, ips: %s, services: %s, ttl: %v, resolver: %s}", hostsStr, ipsStr, servicesStr, a.ttl, a.resolverDefRef.urls)
 }
 
 // ServeDNS handles DNS queries.
@@ -88,23 +137,38 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 	zoneSuffix := strings.Trim(r.configZone, ". ")
 	alias := strings.TrimSuffix(strings.Trim(domain, "."), "."+zoneSuffix)
 	port := state.LocalPort()
+	// Metric labels come from the configuration, never from the query name, so random names can't
+	// create new series. The real names are only logged.
+	aliasLabel := r.metricAlias(alias)
+	clientLabel := r.metricClient(clientIp)
 	if r.verbose > 0 {
 		log.Infof("Recursor query: domain '%s', alias '%s', port '%s', config-zone '%s', state-zone '%s', client_ip '%s'", domain, alias, port, r.configZone, state.Zone, clientIp)
 	}
+
+	// Service names (`_name._proto.<alias>`, `_services._dns-sd._udp.<alias>`) of an explicit alias with services.
+	// An explicitly configured alias of the same name always wins, so existing configs keep working.
+	if _, explicit := r.aliases[alias]; !explicit {
+		if base, name, protocol, enum, ok := parseServiceQueryName(alias); ok {
+			if aDef, found := r.aliases[base]; found && len(aDef.services) > 0 {
+				return r.serveServiceQuery(ctx, out, query, aDef, base, name, protocol, enum, port, zone, domain, clientLabel)
+			}
+		}
+	}
+
 	qA, qAAAA := extractQuestions(query.Question)
 	if r.verbose > 1 {
 		log.Infof("Recursor query details: A=%t, AAAA=%t, client_ip=%s\n```\n%s```", qA, qAAAA, clientIp, query.String())
 	}
 	if !qA && !qAAAA {
-		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "reason": "not-supported-query-code", "client_ip": clientIp}).Inc()
-		log.Errorf("Query code not supported: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
+		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": aliasLabel, "reason": "not-supported-query-code", "client_ip": clientLabel}).Inc()
+		log.Debugf("Query code not supported: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
 
 	aliasDef, found, isWildcard := r.findAlias(alias)
 	if !found {
-		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "reason": "alias-not-found", "client_ip": clientIp}).Inc()
-		log.Errorf("Alias not found: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
+		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": aliasLabel, "reason": "alias-not-found", "client_ip": clientLabel}).Inc()
+		log.Debugf("Alias not found: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
 	if isWildcard {
@@ -113,32 +177,119 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 		}
 	} else {
 		if len(aliasDef.hosts) == 0 && len(aliasDef.ips) == 0 {
-			promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "reason": "alias-empty-def", "client_ip": clientIp}).Inc()
-			log.Errorf("Empty alias definition: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
+			promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": aliasLabel, "reason": "alias-empty-def", "client_ip": clientLabel}).Inc()
+			log.Debugf("Empty alias definition: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
 			return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 		}
 	}
 
-	// Start with statically defined IPs
-	var ips []net.IP
-	ips = ipsAppendUnique(ips, aliasDef.ips)
-	hosts := aliasDef.hosts
-	// Resolve dynamic IPs for each host.
-	for _, host := range hosts {
-		// If the host is "*", use the original query name.
+	ips, err := r.aliasIps(ctx, aliasDef, state.Name(), lookupNetwork(qA, qAAAA), port, zone, aliasLabel)
+	if err != nil {
+		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": aliasLabel, "reason": "resolving-error", "client_ip": clientLabel}).Inc()
+		log.Warningf("%v: port '%s', zone '%s', domain '%s', alias '%s'", err, port, zone, domain, alias)
+		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
+	}
+	workIps := r.finalizeIps(ips, aliasDef, qA, qAAAA)
+	dnsMsg := createDnsAnswer(query, port, zone, domain, aliasLabel, aliasDef.resolverDefRef.name, workIps, qA, qAAAA, aliasDef.ttl)
+	if len(dnsMsg.Answer) == 0 {
+		dnsMsg.Ns = []dns.RR{r.soa(aliasDef.ttl)}
+	}
+	if r.verbose > 1 {
+		log.Infof("Recursor answer:\n```\n%s```", dnsMsg.String())
+	}
+	err = out.WriteMsg(dnsMsg)
+	if err != nil {
+		log.Errorf("Could not write message: %v", err)
+		return dns.RcodeServerFailure, err
+	}
+	promQueryServedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": aliasLabel, "resolver": aliasDef.resolverDefRef.name, "client_ip": clientLabel}).Inc()
+	return dns.RcodeSuccess, nil
+}
+
+// metricAlias returns the alias label for metrics: the configured alias, `*` when the wildcard
+// alias handles the name, or empty when no alias matches.
+func (r recursor) metricAlias(alias string) string {
+	if _, ok := r.aliases[alias]; ok {
+		return alias
+	}
+	if _, ok := r.aliases["*"]; ok {
+		return "*"
+	}
+	return ""
+}
+
+// metricClient returns the client_ip label for metrics, empty when client IP metrics are disabled.
+func (r recursor) metricClient(clientIp string) string {
+	if r.clientIpMetrics {
+		return clientIp
+	}
+	return ""
+}
+
+// lookupNetwork returns the address family to ask the upstreams for: only what the client asked.
+func lookupNetwork(qA, qAAAA bool) string {
+	switch {
+	case qA && !qAAAA:
+		return "ip4"
+	case qAAAA && !qA:
+		return "ip6"
+	}
+	return "ip"
+}
+
+// aliasIps returns the alias' static IPs plus the addresses resolved for its hosts, deduplicated,
+// in the configured order. The hosts are resolved in parallel. The host "*" stands for queryName.
+// Any host that cannot be resolved fails the whole alias.
+func (r recursor) aliasIps(ctx context.Context, aDef aliasDef, queryName, network, port, zone, aliasLabel string) ([]net.IP, error) {
+	ips := ipsAppendUnique(nil, aDef.ips)
+	n := len(aDef.hosts)
+	results := make([][]net.IP, n)
+	errs := make([]error, n)
+	resolve := func(i int) {
+		host := aDef.hosts[i]
 		queryHost := host
 		if host == "*" {
-			queryHost = state.Name()
+			queryHost = queryName
 		}
-		dynIps, err := multiResolve(ctx, aliasDef.resolverDefRef, port, zone, alias, queryHost)
-		if err != nil {
-			promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "reason": "resolving-error", "client_ip": clientIp}).Inc()
-			log.Errorf("Could not resolve host '%s': port '%s', zone '%s', domain '%s', alias '%s'", host, port, zone, domain, alias)
-			return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
-		}
-		ips = ipsAppendUnique(ips, dynIps)
+		results[i], errs[i] = resolveHost(ctx, aDef.resolverDefRef, network, port, zone, aliasLabel, host, queryHost)
 	}
+	if n == 1 {
+		resolve(0)
+	} else {
+		var wg sync.WaitGroup
+		for i := range aDef.hosts {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				resolve(i)
+			}(i)
+		}
+		wg.Wait()
+	}
+	for i, host := range aDef.hosts {
+		if errs[i] != nil {
+			return nil, fmt.Errorf("could not resolve host '%s': %w", host, errs[i])
+		}
+		ips = ipsAppendUnique(ips, results[i])
+	}
+	return ips, nil
+}
 
+// resolveHost resolves host for the address family `network` ("ip4", "ip6" or "ip").
+// When a single-family lookup finds nothing, it is repeated for both families: a host that exists
+// without addresses of the asked family then gets an empty answer, while a host that doesn't
+// exist still fails, as with a lookup of both families.
+func resolveHost(ctx context.Context, rd *resolverDef, network, port, zone, aliasLabel, hostLabel, host string) ([]net.IP, error) {
+	ips, err := multiResolve(ctx, rd, network, port, zone, aliasLabel, hostLabel, host)
+	var dnsErr *net.DNSError
+	if err != nil && network != "ip" && errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		return multiResolve(ctx, rd, "ip", port, zone, aliasLabel, hostLabel, host)
+	}
+	return ips, err
+}
+
+// finalizeIps filters the addresses to the asked families and applies shuffle_ips and ips_transform.
+func (r recursor) finalizeIps(ips []net.IP, aDef aliasDef, qA, qAAAA bool) []net.IP {
 	workIps := ips
 	if qA != qAAAA {
 		if qA {
@@ -147,31 +298,41 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 			workIps = filterIPv6(ips)
 		}
 	}
-
-	// Shuffle IPs if configured.
-	if aliasDef.shuffleIps {
+	if aDef.shuffleIps {
 		r.random.Shuffle(len(workIps), func(i, j int) {
 			workIps[i], workIps[j] = workIps[j], workIps[i]
 		})
 	}
-	if len(aliasDef.ipsTransform) > 0 {
-		workIps = r.transformIps(workIps, aliasDef.ipsTransform)
+	if len(aDef.ipsTransform) > 0 {
+		workIps = r.transformIps(workIps, aDef.ipsTransform)
 	}
-	dnsMsg := createDnsAnswer(query, port, zone, domain, alias, aliasDef.resolverDefRef.name, workIps, qA, qAAAA, aliasDef.ttl)
-	if r.verbose > 1 {
-		log.Infof("Recursor answer:\n```\n%s```", dnsMsg.String())
+	return workIps
+}
+
+// ipsTransformFunctions are the supported ips_transform functions, besides `limit_<n>`.
+var ipsTransformFunctions = map[string]bool{
+	"shuffle": true, "sort_asc": true, "sort_desc": true, "first": true, "last": true,
+	"random_one": true, "prefer_ipv4": true, "prefer_ipv6": true,
+}
+
+// validateIpsTransform rejects unknown ips_transform functions, so typos fail at startup.
+func validateIpsTransform(transform []string) error {
+	for _, f := range transform {
+		if ipsTransformFunctions[f] {
+			continue
+		}
+		if s, ok := strings.CutPrefix(f, "limit_"); ok {
+			if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+				continue
+			}
+		}
+		return fmt.Errorf("unknown ips_transform function '%s'", f)
 	}
-	err := out.WriteMsg(dnsMsg)
-	if err != nil {
-		log.Errorf("Could not write message: %v", err)
-		return dns.RcodeServerFailure, err
-	}
-	promQueryServedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": aliasDef.resolverDefRef.name, "client_ip": clientIp}).Inc()
-	return dns.RcodeSuccess, nil
+	return nil
 }
 
 // transformIps applies transformations in order.
-// Unknown transformation names are ignored.
+// The functions are validated at startup (validateIpsTransform); unknown ones are ignored here.
 func (r recursor) transformIps(ips []net.IP, transform []string) []net.IP {
 	// Work on a copy to avoid side effects if a caller reuses the slice
 	ips = append([]net.IP(nil), ips...)
@@ -274,46 +435,58 @@ func (r recursor) findAlias(alias string) (aliasDef, bool, bool) {
 	return aDef, found, isWildcard
 }
 
-// multiResolve queries the resolver(s) in parallel and returns the first successful result.
-func multiResolve(ctx context.Context, resolverDefRef *resolverDef, port, zone, alias, host string) ([]net.IP, error) {
+// multiResolve queries the resolver URLs in parallel and returns the first successful result.
+// The lookups still running then are cancelled. Each lookup is bounded by the resolver timeout.
+func multiResolve(ctx context.Context, resolverDefRef *resolverDef, network, port, zone, aliasLabel, hostLabel, host string) ([]net.IP, error) {
 	type result struct {
 		ips         []net.IP
 		err         error
-		elapsed     time.Duration
 		resolverURL string
 	}
-	resCh := make(chan result, len(resolverDefRef.resolverRefs))
-	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	n := len(resolverDefRef.resolverRefs)
+	// Buffered, so lookups finishing after we return never block.
+	resCh := make(chan result, n)
 	for ri, resolver := range resolverDefRef.resolverRefs {
-		resolverURL := resolverDefRef.urls[ri]
-		wg.Add(1)
 		go func(rsl *net.Resolver, resolverURL string) {
-			defer wg.Done()
+			lookupCtx := ctx
+			if resolverDefRef.timeout > 0 {
+				var lookupCancel context.CancelFunc
+				lookupCtx, lookupCancel = context.WithTimeout(ctx, resolverDefRef.timeout)
+				defer lookupCancel()
+			}
 			start := time.Now()
-			ips, err := rsl.LookupIP(ctx, "ip", host)
+			ips, err := rsl.LookupIP(lookupCtx, network, host)
 			elapsed := time.Since(start)
-			resCh <- result{ips: ips, err: err, elapsed: elapsed, resolverURL: resolverURL}
-		}(resolver, resolverURL)
+			if err == nil && len(ips) == 0 {
+				err = fmt.Errorf("no addresses for host '%s'", host)
+			}
+			if err != nil && ctx.Err() != nil {
+				// Cancelled because another URL answered first (or the query was abandoned):
+				// not an upstream failure, so it isn't counted.
+				resCh <- result{err: err, resolverURL: resolverURL}
+				return
+			}
+			resultLabel := "success"
+			if err != nil {
+				resultLabel = "error"
+			}
+			labels := prometheus.Labels{"port": port, "zone": zone, "alias": aliasLabel, "resolver": resolverDefRef.name, "host": hostLabel, "result": resultLabel}
+			promResolveDurationMs.With(labels).Set(float64(elapsed.Milliseconds()))
+			promResolveCountTotal.With(labels).Inc()
+			promResolveDurationMsTotal.With(labels).Add(float64(elapsed.Milliseconds()))
+			resCh <- result{ips: ips, err: err, resolverURL: resolverURL}
+		}(resolver, resolverDefRef.urls[ri])
 	}
-	wg.Wait()
-	close(resCh)
 	var lastErr error
-	for res := range resCh {
-		labels := prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": resolverDefRef.name, "host": host}
-		resultLabel := "success"
-		if res.err != nil {
-			resultLabel = "error"
-		}
-		labels["result"] = resultLabel
-		promResolveDurationMs.With(labels).Set(float64(res.elapsed.Milliseconds()))
-		promResolveCountTotal.With(labels).Inc()
-		promResolveDurationMsTotal.With(labels).Add(float64(res.elapsed.Milliseconds()))
-		if res.err == nil && len(res.ips) > 0 {
+	for i := 0; i < n; i++ {
+		res := <-resCh
+		if res.err == nil {
 			return res.ips, nil
-		} else {
-			lastErr = fmt.Errorf("resolver '%s' error: %w", res.resolverURL, res.err)
-			log.Warning(lastErr.Error())
 		}
+		lastErr = fmt.Errorf("resolver '%s' error: %w", res.resolverURL, res.err)
+		log.Debug(lastErr.Error())
 	}
 	return nil, lastErr
 }
@@ -352,41 +525,58 @@ func ipsAppendUnique(dest []net.IP, src []net.IP) []net.IP {
 }
 
 // createDnsAnswer constructs the DNS response message.
-func createDnsAnswer(qMsg *dns.Msg, port, zone, domain, alias, resolver string, ips []net.IP, qA bool, qAAAA bool, ttl uint32) *dns.Msg {
+func createDnsAnswer(qMsg *dns.Msg, port, zone, domain, aliasLabel, resolver string, ips []net.IP, qA bool, qAAAA bool, ttl uint32) *dns.Msg {
 	aMsg := new(dns.Msg)
 	aMsg.SetReply(qMsg)
-	aMsg.Answer = []dns.RR{}
-	for _, ip := range ips {
-		var rr dns.RR
-		if ip.To4() != nil {
-			if qA {
-				rr = &dns.A{
-					Hdr: dns.RR_Header{
-						Name:   dns.CanonicalName(domain),
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
-						Ttl:    ttl,
-					},
-					A: ip,
-				}
-			}
-		} else {
-			if qAAAA {
-				rr = &dns.AAAA{
-					Hdr: dns.RR_Header{
-						Name:   dns.CanonicalName(domain),
-						Rrtype: dns.TypeAAAA,
-						Class:  dns.ClassINET,
-						Ttl:    ttl,
-					},
-					AAAA: ip,
-				}
-			}
+	aMsg.Authoritative = true
+	aMsg.Answer = ipRRs(domain, ips, qA, qAAAA, ttl)
+	for _, rr := range aMsg.Answer {
+		var ip net.IP
+		switch a := rr.(type) {
+		case *dns.A:
+			ip = a.A
+		case *dns.AAAA:
+			ip = a.AAAA
 		}
-		if rr != nil {
-			promResolveIpCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": alias, "resolver": resolver, "ip": ip.String()}).Inc()
-			aMsg.Answer = append(aMsg.Answer, rr)
-		}
+		promResolveIpCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": aliasLabel, "resolver": resolver, "ip": ip.String()}).Inc()
 	}
 	return aMsg
+}
+
+// soa returns the synthesized SOA record of the zone, added to the authority section of empty
+// (NODATA) answers so downstream resolvers can cache them (RFC 2308). The negative TTL is ttl.
+func (r recursor) soa(ttl uint32) dns.RR {
+	apex := strings.TrimSuffix(r.configZone, ".")
+	return &dns.SOA{
+		Hdr:     dns.RR_Header{Name: r.configZone, Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: ttl},
+		Ns:      dns.Fqdn("ns." + apex),
+		Mbox:    dns.Fqdn("hostmaster." + apex),
+		Serial:  r.soaSerial,
+		Refresh: 7200,
+		Retry:   1800,
+		Expire:  86400,
+		Minttl:  ttl,
+	}
+}
+
+// ipRRs builds A/AAAA records named `name` for the addresses of the asked families.
+func ipRRs(name string, ips []net.IP, qA bool, qAAAA bool, ttl uint32) []dns.RR {
+	var rrs []dns.RR
+	owner := dns.CanonicalName(name)
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			if qA {
+				rrs = append(rrs, &dns.A{
+					Hdr: dns.RR_Header{Name: owner, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl},
+					A:   ip,
+				})
+			}
+		} else if qAAAA {
+			rrs = append(rrs, &dns.AAAA{
+				Hdr:  dns.RR_Header{Name: owner, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl},
+				AAAA: ip,
+			})
+		}
+	}
+	return rrs
 }

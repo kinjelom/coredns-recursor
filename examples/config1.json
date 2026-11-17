@@ -3,7 +3,7 @@
   "resolvers": {
     "resolver_primary": {
       "urls": ["udp://10.0.0.1:53","udp://10.0.0.2:53"],
-      "timeout_ms": 10
+      "timeout_ms": 500
     },
     "resolver_secondary": {
       "urls": ["udp://10.0.0.3:53"]
@@ -14,6 +14,7 @@
       "ips": ["10.1.1.1","10.1.1.2"],
       "hosts": ["www.example.org","www.example.com"],
       "ips_transform": [ "shuffle", "first" ],
+      "services": [ "https:443", "dns:53/udp", "dns:53/tcp" ],
       "ttl": 5,
       "resolver_name": "resolver_primary"
     },

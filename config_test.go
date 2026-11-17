@@ -78,7 +78,7 @@ func checkRcu(t *testing.T, err error, rcu recursorCfg) {
 	assert.Equal(t, 2, len(rsl.Urls), "resolver_primary urls len")
 	assert.Equal(t, "udp://10.0.0.1:53", rsl.Urls[0], "resolver_primary url[0]")
 	assert.Equal(t, "udp://10.0.0.2:53", rsl.Urls[1], "resolver_primary url[1]")
-	assert.Equal(t, 10, rsl.TimeoutMs, "resolver_primary timeout")
+	assert.Equal(t, 500, rsl.TimeoutMs, "resolver_primary timeout")
 
 	rsl = rcu.Resolvers["resolver_secondary"]
 	assert.Equal(t, 1, len(rsl.Urls), "resolver_secondary urls len")
@@ -95,6 +95,7 @@ func checkRcu(t *testing.T, err error, rcu recursorCfg) {
 	assert.Equal(t, "www.example.org", a.Hosts[0], "alias1 hosts[0]")
 	assert.Equal(t, "www.example.com", a.Hosts[1], "alias1 hosts[1]")
 	assert.Equal(t, []string{"shuffle", "first"}, a.IpsTransform, "alias1 has shuffle,first transform")
+	assert.Equal(t, []string{"https:443", "dns:53/udp", "dns:53/tcp"}, a.Services, "alias1 services")
 	assert.Equal(t, uint32(5), a.Ttl, "alias1 ttl")
 	assert.Equal(t, "resolver_primary", a.ResolverName, "alias1 resolverName")
 
@@ -104,6 +105,7 @@ func checkRcu(t *testing.T, err error, rcu recursorCfg) {
 	assert.Equal(t, "10.1.1.2", a.Ips[1], "alias2 ips[1]")
 	assert.Equal(t, 0, len(a.Hosts), "alias2 hosts len")
 	assert.Empty(t, a.IpsTransform, "alias2 without ips transform")
+	assert.Empty(t, a.Services, "alias2 without services")
 	assert.Equal(t, uint32(0), a.Ttl, "alias2 ttl")
 	assert.Equal(t, "default", a.ResolverName, "alias2 resolverName")
 

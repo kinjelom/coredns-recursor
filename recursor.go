@@ -21,7 +21,7 @@ import (
 )
 
 const pluginName = "recursor"
-const pluginVersion = "1.5.0"
+const pluginVersion = "1.6.0"
 const defaultResolverName = "default"
 
 // defaultResolveTimeout bounds a lookup when the resolver has no timeout_ms,
@@ -39,8 +39,10 @@ type recursor struct {
 	random     *rand.Rand
 	configZone string
 	aliases    map[string]aliasDef
-	resolvers  map[string]resolverDef
-	verbose    int
+	// patterns are the aliases with a `*` inside a label (e.g. `*-x`), most specific first.
+	patterns  []aliasPattern
+	resolvers map[string]resolverDef
+	verbose   int
 	// clientIpMetrics adds the client's IP to the query metrics (one series per client).
 	clientIpMetrics bool
 	// soaSerial is the serial of the synthesized SOA record returned with empty answers.
@@ -165,7 +167,7 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, out, query)
 	}
 
-	aliasDef, found, isWildcard := r.findAlias(alias)
+	aliasDef, _, found, isWildcard := r.findAlias(alias)
 	if !found {
 		promQueryOmittedCountTotal.With(prometheus.Labels{"port": port, "zone": zone, "alias": aliasLabel, "reason": "alias-not-found", "client_ip": clientLabel}).Inc()
 		log.Debugf("Alias not found: port '%s', zone '%s', domain '%s', alias '%s'", port, zone, domain, alias)
@@ -206,16 +208,11 @@ func (r recursor) ServeDNS(ctx context.Context, out dns.ResponseWriter, query *d
 	return dns.RcodeSuccess, nil
 }
 
-// metricAlias returns the alias label for metrics: the configured alias, `*` when the wildcard
-// alias handles the name, or empty when no alias matches.
+// metricAlias returns the alias label for metrics: the configured alias or pattern that handles
+// the name (`*` for the wildcard alias), or empty when no alias matches.
 func (r recursor) metricAlias(alias string) string {
-	if _, ok := r.aliases[alias]; ok {
-		return alias
-	}
-	if _, ok := r.aliases["*"]; ok {
-		return "*"
-	}
-	return ""
+	_, name, _, _ := r.findAlias(alias)
+	return name
 }
 
 // metricClient returns the client_ip label for metrics, empty when client IP metrics are disabled.
@@ -422,17 +419,22 @@ func filterIPv6(ips []net.IP) []net.IP {
 	return out
 }
 
-// findAlias returns the alias definition and flags indicating if found and if it is a wildcard alias.
-func (r recursor) findAlias(alias string) (aliasDef, bool, bool) {
-	isWildcard := false
-	aDef, found := r.aliases[alias]
-	if !found {
-		aDef, found = r.aliases["*"]
-		if found {
-			isWildcard = true
+// findAlias returns the alias definition for a query name relative to the zone, the configured name
+// that matched, and flags indicating if found and if it matched a wildcard (a pattern or `*`).
+// Precedence: the exact alias, then the most specific pattern (see aliasPattern), then `*`.
+func (r recursor) findAlias(alias string) (aliasDef, string, bool, bool) {
+	if aDef, found := r.aliases[alias]; found {
+		return aDef, alias, true, false
+	}
+	for _, p := range r.patterns {
+		if p.match(alias) {
+			return r.aliases[p.name], p.name, true, true
 		}
 	}
-	return aDef, found, isWildcard
+	if aDef, found := r.aliases["*"]; found {
+		return aDef, "*", true, true
+	}
+	return aliasDef{}, "", false, false
 }
 
 // multiResolve queries the resolver URLs in parallel and returns the first successful result.

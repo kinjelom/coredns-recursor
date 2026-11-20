@@ -105,7 +105,15 @@ func createRecursor(configZone string, cfg recursorCfg) (recursor, error) {
 			return r, fmt.Errorf("creating alias '%s' error: %w, config: %s", key, err, aCfg.String())
 		}
 		r.aliases[name] = a
+		if isAliasPattern(name) {
+			p, err := parseAliasPattern(name)
+			if err != nil {
+				return r, fmt.Errorf("creating alias '%s' error: %w", key, err)
+			}
+			r.patterns = append(r.patterns, p)
+		}
 	}
+	sortAliasPatterns(r.patterns)
 	return r, nil
 }
 
@@ -186,7 +194,9 @@ func createAlias(aName string, aCfg aliasCfg, resolvers map[string]resolverDef) 
 		}
 		a.ips = append(a.ips, addr)
 	}
-	if aName != "*" {
+	// `*` and patterns without ips and hosts resolve the original query name.
+	wildcard := aName == "*" || isAliasPattern(aName)
+	if !wildcard {
 		if len(a.ips) == 0 && len(a.hosts) == 0 {
 			return a, fmt.Errorf("alias ips and hosts are empty")
 		}
@@ -197,8 +207,8 @@ func createAlias(aName string, aCfg aliasCfg, resolvers map[string]resolverDef) 
 	if err := validateIpsTransform(aCfg.IpsTransform); err != nil {
 		return a, err
 	}
-	if aName == "*" && len(aCfg.Services) > 0 {
-		return a, fmt.Errorf("the wildcard alias can't define services")
+	if wildcard && len(aCfg.Services) > 0 {
+		return a, fmt.Errorf("the wildcard alias and alias patterns can't define services")
 	}
 	seen := map[string]bool{}
 	for _, spec := range aCfg.Services {

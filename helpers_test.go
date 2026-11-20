@@ -107,17 +107,17 @@ func TestTransformIps_does_not_mutate_input(t *testing.T) {
 
 func TestFindAlias(t *testing.T) {
 	r := recursor{aliases: map[string]aliasDef{"a": {ttl: 1}, "*": {ttl: 2}}}
-	d, found, wild := r.findAlias("a")
+	d, _, found, wild := r.findAlias("a")
 	assert.True(t, found)
 	assert.False(t, wild)
 	assert.Equal(t, uint32(1), d.ttl)
 
-	d, found, wild = r.findAlias("b")
+	d, _, found, wild = r.findAlias("b")
 	assert.True(t, found)
 	assert.True(t, wild)
 	assert.Equal(t, uint32(2), d.ttl)
 
 	r = recursor{aliases: map[string]aliasDef{"a": {}}}
-	_, found, _ = r.findAlias("b")
+	_, _, found, _ = r.findAlias("b")
 	assert.False(t, found)
 }

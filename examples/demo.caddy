@@ -36,6 +36,10 @@ recursor {
         hosts www.example.net
         ttl 14
     }
+    alias *-lb {
+        ips 10.0.0.50
+        ttl 16
+    }
     alias * {
         resolver_name demo
         ttl 15

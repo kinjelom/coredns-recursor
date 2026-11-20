@@ -124,3 +124,17 @@ func TestCreateRecursor_pattern_validation(t *testing.T) {
 	_, err = createRecursor("in", recursorCfg{Aliases: map[string]aliasCfg{"*-x": {}}})
 	assert.NoError(t, err, "a pattern without ips and hosts resolves the query name, like `*`")
 }
+
+func TestHermetic_pattern_alias_tie_longer_suffix_wins(t *testing.T) {
+	// `ab-x` matches both patterns, each with 3 characters other than `*`: the longer suffix wins.
+	r := newRecursor(t, "in", recursorCfg{
+		Aliases: map[string]aliasCfg{
+			"ab-*": {Ips: []string{"10.0.0.1"}},
+			"*b-x": {Ips: []string{"10.0.0.2"}},
+		},
+	})
+	s := serve(r, "ab-x.in.", dns.TypeA)
+	require.NoError(t, s.err)
+	assert.Equal(t, []string{"10.0.0.2"}, s.ips)
+	assert.Equal(t, []string{"10.0.0.1"}, serve(r, "ab-y.in.", dns.TypeA).ips, "only `ab-*` matches")
+}

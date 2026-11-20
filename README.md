@@ -174,20 +174,38 @@ When several aliases match a name, the most specific one wins, regardless of the
 
 Two different patterns equal on both counts can't match the same name, so the choice is always unambiguous.
 
+[examples/patterns.caddy](examples/patterns.caddy), in the zone `in`:
+
 ```txt
 recursor {
     alias api-x {
-        ips 10.0.0.1             # api-x
+        ips 10.0.0.1
     }
     alias *-x {
-        ips 10.0.0.50            # foo-x, bar-x, ... → HAProxy
+        ips 10.0.0.50
         ttl 30
     }
+    alias web-* {
+        ips 10.0.0.60
+    }
+    alias *-x.eu {
+        hosts haproxy-eu.example.net
+    }
     alias * {
-        resolver_name upstream   # everything else
+        ips 10.9.9.9
     }
 }
 ```
+
+| Query | Answered by | Why |
+|---|---|---|
+| `api-x.in` | `api-x` → `10.0.0.1` | an explicit alias wins |
+| `foo-x.in`, `bar-x.in` | `*-x` → `10.0.0.50` | |
+| `web-1.in` | `web-*` → `10.0.0.60` | |
+| `web-x.in` | `web-*` → `10.0.0.60` | matches `*-x` too, `web-*` has more characters other than `*` (4 vs 2) |
+| `foo-x.eu.in` | `*-x.eu` → addresses of `haproxy-eu.example.net` | |
+| `-x.in` | `*` → `10.9.9.9` | `*` in a pattern matches at least one character |
+| `a.foo-x.in` | `*` → `10.9.9.9` | `*` in a pattern doesn't cross labels |
 
 A pattern without `ips` and `hosts` resolves the original query name, like `*`, e.g. to send a group of names to
 another resolver. Metrics use the pattern as the `alias` label. Patterns can't define `services`.
@@ -234,6 +252,10 @@ recursor {
     alias alias4 {
         hosts www.example.net
         ttl 14
+    }
+    alias *-lb {
+        ips 10.0.0.50
+        ttl 16
     }
     alias * {
         resolver_name demo
@@ -446,12 +468,15 @@ $ dig +short alias2.demo.svc @127.0.0.1 -p 1053
 10.0.0.1
 10.0.0.2
 $ nslookup -port=1053 -type=A alias3.demo.svc 127.0.0.1
+$ dig +short web-lb.demo.svc @127.0.0.1 -p 1053          # the *-lb pattern
+10.0.0.50
 $ dig PTR _services._dns-sd._udp.alias1.demo.svc @127.0.0.1 -p 1053
 $ dig SRV _https._tcp.alias1.demo.svc @127.0.0.1 -p 1053
 $ curl -s localhost:9153/metrics | grep '^coredns_recursor_'
 ```
 
-`alias5.demo.svc` (the `*` alias) is forwarded to `10.0.0.1:53`, which in most networks does not answer: the query
+Any `<name>-lb.demo.svc` (e.g. `web-lb`, `api-lb`) is answered by the `*-lb` [pattern](#alias-patterns) with
+`10.0.0.50`. `alias5.demo.svc` (the `*` alias) is forwarded to `10.0.0.1:53`, which in most networks does not answer: the query
 times out after `timeout_ms` and is counted in `query_omitted_count_total` with `reason="resolving-error"`.
 
 ## Development
@@ -463,6 +488,7 @@ go test -race ./...
 - Most tests use an in-process fake DNS server and need no network. The tests in `recursor_test.go` query public
   resolvers (`8.8.8.8`, `one.one.one.one`), so they need Internet access.
 - The tests check that [examples/demo.caddy](examples/demo.caddy) appears verbatim in this README and that its
-  YAML/JSON versions are equivalent. Change them together.
+  YAML/JSON versions are equivalent. Change them together. The same applies to
+  [examples/patterns.caddy](examples/patterns.caddy) and the table of names it answers.
 - The diagram is edited in [Archi](https://www.archimatetool.com/) ([docs/flow.archimate](docs/flow.archimate)) and
   exported to `docs/flow.svg` and `docs/flow.png`.
